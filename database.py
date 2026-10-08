@@ -31,8 +31,8 @@ class Booking(base):
 
     id = Column(Integer, primary_key=True, index=True)
 
-    users_id = Column(Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=False)
-    seats_id = Column(Integer, ForeignKey("seat.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    seat_id = Column(Integer, ForeignKey("seats.id", ondelete="CASCADE"), nullable=False)
 
     starts_at = Column(DateTime(timezone=True), nullable=False)
     ends_at = Column(DateTime(timezone=True), nullable=False)
@@ -40,4 +40,5 @@ class Booking(base):
     status = Column(String, default="confirmed", nullable=False)
     source = Column(String, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
 
