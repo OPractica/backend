@@ -13,7 +13,7 @@ class User(base):
     password_hash = Column(String, nullable=False)
     full_name = Column(String, nullable=False)
     role = Column(String, default="employee")
-    is_active = Column(Boolean, default=True)  # Аккаунт активен?
+    is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 
@@ -45,5 +45,8 @@ class Booking(base):
     ends_at = Column(DateTime(timezone=True), nullable=False)
 
     status = Column(String, default="confirmed", nullable=False)
-    source = Column(String, nullable=False)
+    source = Column(String, default="manual", nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    is_checked_in = Column(
+        Boolean, default=False, nullable=False
+    )  # ?Подтвердил ли пользователь свое присутствие
