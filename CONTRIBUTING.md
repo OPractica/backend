@@ -33,7 +33,21 @@ bugfix  ---------------------------------o---o---------> fixes for release bugs
 | `docs/` | Documentation only | `docs/api-readme` |
 | `chore/` | Setup, configs, dependencies, project structure | `chore/folder-structure` |
 
-Use lowercase words separated by hyphens. Don't name branches `bugfix/...` or `release/...`: Git can't have a branch `bugfix/x` while a branch `bugfix` exists.
+Use lowercase words separated by hyphens and put the issue number first: `feat/13-user-registration`. Don't name branches `bugfix/...` or `release/...`: Git can't have a branch `bugfix/x` while a branch `bugfix` exists.
+
+## Picking an issue
+
+Every task is a GitHub issue: **take it → branch → code → pull request with `Closes #N` → merge**. The issue closes automatically after the merge.
+
+1. **Pick an issue whose "Depends on" issues are all closed.** List issues nobody has taken yet:
+   ```bash
+   gh issue list --no-assignee
+   ```
+2. **Assign it to yourself** so the team sees it's taken: on GitHub click **Assignees → assign yourself**, or run:
+   ```bash
+   gh issue edit 13 --add-assignee @me
+   ```
+3. **Use the issue as your plan.** "Tasks" is the checklist of work, "Done when" is what to check before opening the pull request.
 
 ## Working on a task
 
@@ -42,31 +56,34 @@ Use lowercase words separated by hyphens. Don't name branches `bugfix/...` or `r
 git checkout main
 git pull
 
-# 2. Create a branch for the task
-git checkout -b feat/office-map-svg
+# 2. Create a branch for the issue
+git checkout -b feat/13-user-registration
 
 # 3. Work and commit in small steps
 git add .
-git commit -m "feat: add clickable SVG office map"
+git commit -m "feat: add user registration endpoint"
 
-# 4. Push the branch to GitHub (next times just `git push`)
-git push -u origin feat/office-map-svg
+# 4. Fix lint and formatting before pushing
+uv run ruff check --fix . && uv run ruff format .
+
+# 5. Push the branch to GitHub (next times just `git push`)
+git push -u origin feat/13-user-registration
 ```
 
-5. **Open a pull request** `feat/office-map-svg -> main`: click "Compare & pull request" on GitHub, or run `gh pr create --base main`.
-6. **Review.** A teammate reads the code and leaves comments. Fix them with new commits in the same branch and `git push`. The pull request updates automatically.
-7. **Merge** the pull request on GitHub and click "Delete branch".
-8. **Clean up locally:**
+6. **Open a pull request** `feat/13-user-registration -> main`: click "Compare & pull request" on GitHub, or run `gh pr create --base main`. Write `Closes #13` in the description.
+7. **Review.** Wait for green CI and ask a teammate to review. Fix comments with new commits in the same branch and `git push`. The pull request updates automatically.
+8. **Merge** the pull request on GitHub and click "Delete branch". The issue closes automatically.
+9. **Clean up locally:**
    ```bash
    git checkout main
    git pull
-   git branch -d feat/office-map-svg
+   git branch -d feat/13-user-registration
    ```
 
 ### If main changed while you were working
 
 ```bash
-git checkout feat/office-map-svg
+git checkout feat/13-user-registration
 git pull origin main
 # resolve conflicts if Git reports any, then:
 git add .
@@ -79,7 +96,14 @@ git push
 - One task, one branch, one pull request. Small pull requests are reviewed faster and conflict less.
 - Title in the same format as a commit message: `feat: add booking API`.
 - In the description write what changed and how to check it.
+- Link the issue with `Closes #N` so it closes on merge.
 - Don't merge a pull request with failing checks or unresolved comments.
+
+## Working in parallel
+
+- **Take issues from different areas** (for example auth and email vs seats and bookings). Then you rarely touch the same files.
+- **If your issue depends on one that is still in progress**, agree on the function signature with its owner and start with a stub. For example, use a fake user until `get_current_user` is merged.
+- **Small pull requests, merged often.** The longer a branch lives, the harder it is to merge.
 
 ## Commit messages
 
@@ -133,7 +157,7 @@ git push
 
 ## Rules
 
-- Never commit directly to `main` or `release`. Both branches are protected and accept changes only through pull requests.
+- Never commit directly to `main` or `release`. Changes reach them only through pull requests.
 - Always start a new task from the latest `main`.
 - Never commit secrets: `.env` files, passwords, API keys. Put example values in `.env.example`.
 - After your branch is merged and deleted, run `git fetch --prune` to remove stale remote branches locally.
