@@ -1,11 +1,12 @@
-from sqlalchemy import Column, Integer, String, Boolean, JSON, DateTime, ForeignKey
+from sqlalchemy import JSON, Boolean, Column, DateTime, ForeignKey, Integer, String
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.sql import func
 
 base = declarative_base()
 
+
 class User(base):
-    __tablename__ = 'users'
+    __tablename__ = "users"
 
     id = Column(Integer, primary_key=True, index=True)
     email = Column(String, unique=True, index=True, nullable=False)
@@ -15,8 +16,9 @@ class User(base):
     is_active = Column(Boolean, default=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+
 class Seat(base):
-    __tablename__ = 'seats'
+    __tablename__ = "seats"
 
     id = Column(Integer, primary_key=True, index=True)
     label = Column(String, nullable=False)
@@ -26,13 +28,18 @@ class Seat(base):
     attributes = Column(JSON, default={})
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
+
 class Booking(base):
-    __tablename__ = 'bookings'
+    __tablename__ = "bookings"
 
     id = Column(Integer, primary_key=True, index=True)
 
-    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
-    seat_id = Column(Integer, ForeignKey("seats.id", ondelete="CASCADE"), nullable=False)
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    seat_id = Column(
+        Integer, ForeignKey("seats.id", ondelete="CASCADE"), nullable=False
+    )
 
     starts_at = Column(DateTime(timezone=True), nullable=False)
     ends_at = Column(DateTime(timezone=True), nullable=False)
@@ -40,6 +47,6 @@ class Booking(base):
     status = Column(String, default="confirmed", nullable=False)
     source = Column(String, default="manual", nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
-    is_checked_in = Column(Boolean, default=False, nullable=False) # ?Подтвердил ли пользователь свое присутствие
-
-
+    is_checked_in = Column(
+        Boolean, default=False, nullable=False
+    )  # ?Подтвердил ли пользователь свое присутствие
