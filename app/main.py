@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager, suppress
 from fastapi import FastAPI
 
 from app.api.v1 import health, voice
+from app.api.v1 import preferences as preferences_api
 from app.services.voice.storage import delete_expired_records
 
 logger = logging.getLogger(__name__)
@@ -50,3 +51,4 @@ app.include_router(health.router, prefix="/api/v1")
 
 # Voice recognition
 app.include_router(voice.router, prefix="/api/v1")
+app.include_router(preferences_api.router, prefix="/api/v1")

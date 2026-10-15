@@ -1,7 +1,7 @@
 from difflib import SequenceMatcher
 from pathlib import Path
 
-from voice.transcribe_audio import transcribe_audio
+from app.services.voice.transcribe import transcribe_audio
 
 BASE_DIR = Path(__file__).resolve().parent
 
