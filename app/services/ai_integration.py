@@ -1,32 +1,54 @@
+import asyncio
 from pathlib import Path
 
-from app.services.preferences.parser import extract_preferences
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from app.services.prompts.loader import get_system_prompt
-from app.services.rag.context import retrieve_seat_context
-from app.services.rag.search import search_seats
+from app.services.rag.context import render_seat_context
+from app.services.rag.search import SearchMode, search_seats
 from app.services.voice.transcribe import transcribe_audio
 
 
-def process_user_text(text: str, language: str = "ru") -> dict:
-    preferences = extract_preferences(text, language)
-    result = search_seats(text, language)
+async def process_user_text(
+    text: str,
+    language: str = "ru",
+    session: AsyncSession | None = None,
+    mode: SearchMode = "database",
+) -> dict:
+    result = await search_seats(
+        text=text,
+        language=language,
+        session=session,
+        mode=mode,
+    )
 
     return {
         "text": text,
         "language": language,
-        "preferences": preferences,
+        "preferences": result["preferences"],
         "seat_candidates": result["matches"],
-        "context": retrieve_seat_context(text, language),
+        "context": render_seat_context(result),
         "system_prompt": get_system_prompt(language),
-        "data_source": "demo",
+        "data_source": result["data_source"],
         "availability_checked": False,
         "booking_created": False,
     }
 
 
-def process_user_audio(
+async def process_user_audio(
     file_path: str | Path,
     language: str = "ru",
+    session: AsyncSession | None = None,
+    mode: SearchMode = "database",
 ) -> dict:
-    text = transcribe_audio(file_path, language)
-    return process_user_text(text, language)
+    text = await asyncio.to_thread(
+        transcribe_audio,
+        file_path,
+        language,
+    )
+    return await process_user_text(
+        text=text,
+        language=language,
+        session=session,
+        mode=mode,
+    )
