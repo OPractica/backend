@@ -188,3 +188,103 @@ def test_actual_preferences_for_each_language(language):
         "quiet": True,
         "monitors_min": 2,
     }
+
+
+def test_ai_search_with_booking_availability(monkeypatch):
+    from datetime import UTC, datetime
+    from unittest.mock import AsyncMock
+
+    import app.services.ai_integration as integration
+
+    starts_at = datetime(2026, 12, 1, 9, tzinfo=UTC)
+    ends_at = datetime(2026, 12, 1, 18, tzinfo=UTC)
+
+    fake_result = {
+        "preferences": extract_preferences(RU_TEXT, "ru"),
+        "matches": [
+            {
+                "id": 3,
+                "label": "7-A03",
+                "floor": 7,
+                "zone": "window",
+                "is_active": True,
+                "attributes": {
+                    "window": True,
+                    "quiet": True,
+                    "monitors": 2,
+                    "dock": False,
+                },
+            }
+        ],
+        "data_source": "database",
+        "availability_checked": True,
+        "booking_created": False,
+    }
+
+    mocked = AsyncMock(return_value=fake_result)
+    monkeypatch.setattr(
+        integration,
+        "find_matching_available_seats",
+        mocked,
+    )
+
+    session = FakeSession()
+
+    result = asyncio.run(
+        process_user_text(
+            RU_TEXT,
+            language="ru",
+            session=session,
+            starts_at=starts_at,
+            ends_at=ends_at,
+        )
+    )
+
+    mocked.assert_awaited_once()
+    assert mocked.await_args.kwargs["session"] is session
+    assert mocked.await_args.kwargs["starts_at"] == starts_at
+    assert mocked.await_args.kwargs["ends_at"] == ends_at
+    assert result["availability_checked"] is True
+    assert result["booking_created"] is False
+    assert result["seat_candidates"][0]["label"] == "7-A03"
+    assert result["data_source"] == "database"
+
+
+def test_ai_requires_both_time_boundaries():
+    from datetime import UTC, datetime
+
+    with pytest.raises(ValueError, match="Both starts_at"):
+        asyncio.run(
+            process_user_text(
+                RU_TEXT,
+                session=FakeSession(),
+                starts_at=datetime(2026, 12, 1, 9, tzinfo=UTC),
+            )
+        )
+
+
+def test_ai_rejects_demo_availability():
+    from datetime import UTC, datetime
+
+    with pytest.raises(ValueError, match="database mode"):
+        asyncio.run(
+            process_user_text(
+                RU_TEXT,
+                mode="demo",
+                starts_at=datetime(2026, 12, 1, 9, tzinfo=UTC),
+                ends_at=datetime(2026, 12, 1, 18, tzinfo=UTC),
+            )
+        )
+
+
+def test_ai_rejects_availability_without_session():
+    from datetime import UTC, datetime
+
+    with pytest.raises(ValueError, match="AsyncSession"):
+        asyncio.run(
+            process_user_text(
+                RU_TEXT,
+                starts_at=datetime(2026, 12, 1, 9, tzinfo=UTC),
+                ends_at=datetime(2026, 12, 1, 18, tzinfo=UTC),
+            )
+        )

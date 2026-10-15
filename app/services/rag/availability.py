@@ -4,6 +4,7 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import Seat
+from app.services.booking import find_free_seats as booking_find_free_seats
 from app.services.preferences.parser import extract_preferences
 from app.services.rag.search import matches_preferences
 
@@ -19,7 +20,7 @@ async def find_matching_available_seats(
     ends_at: datetime,
     text: str,
     language: str,
-    find_free_seats: FreeSeatsFinder,
+    find_free_seats: FreeSeatsFinder = booking_find_free_seats,
 ) -> dict:
     if starts_at.tzinfo is None or ends_at.tzinfo is None:
         raise ValueError("Timezone-aware datetimes are required")
