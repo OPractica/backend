@@ -1,12 +1,12 @@
-
 """Create voice_records table.
 
 Revision ID: voice_records_001
 Revises:
 """
 
-from alembic import op
 import sqlalchemy as sa
+
+from alembic import op
 
 revision = "voice_records_001"
 down_revision = None

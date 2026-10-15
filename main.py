@@ -1,13 +1,11 @@
-from rag.search import search_seats
-
 import asyncio
 from contextlib import asynccontextmanager, suppress
 
 from fastapi import FastAPI, HTTPException
-
 from pydantic import BaseModel
-from preferences.parser import extract_preferences
 
+from preferences.parser import extract_preferences
+from rag.search import search_seats
 from voice.router import router as voice_router
 from voice.storage import (
     delete_expired_records,
@@ -18,15 +16,14 @@ from voice.storage import (
 async def cleanup_worker():
     while True:
         try:
-            deleted = await asyncio.to_thread(
-                delete_expired_records
-            )
+            deleted = await asyncio.to_thread(delete_expired_records)
             if deleted:
                 print(f"Expired voice records deleted: {deleted}")
         except Exception:
             # Retry on the next cleanup cycle.
             import logging
-            logging.exception("Voice cleanup failed")
+
+            logging.getLogger(__name__).exception("Voice cleanup failed")
 
         await asyncio.sleep(60)
 
@@ -75,10 +72,12 @@ def parse_preferences(request: PreferenceRequest):
         return result
     except ValueError:
         from fastapi import HTTPException
+
         raise HTTPException(
             status_code=400,
             detail="Unsupported language",
         )
+
 
 class SeatSearchRequest(BaseModel):
     text: str

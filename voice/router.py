@@ -1,6 +1,6 @@
-
 import asyncio
 from pathlib import Path
+from typing import Annotated
 from uuid import uuid4
 
 from fastapi import (
@@ -23,8 +23,8 @@ MAX_FILE_SIZE = 25 * 1024 * 1024
 
 @router.post("/voice")
 async def recognize_voice(
-    file: UploadFile = File(...),
-    language: str | None = Form(None),
+    file: Annotated[UploadFile, File()],
+    language: Annotated[str | None, Form()] = None,
 ):
     if language is not None and language not in ALLOWED_LANGUAGES:
         raise HTTPException(400, "Unsupported language")
@@ -45,9 +45,7 @@ async def recognize_voice(
                 size += len(chunk)
 
                 if size > MAX_FILE_SIZE:
-                    raise HTTPException(
-                        413, "Audio file is too large"
-                    )
+                    raise HTTPException(413, "Audio file is too large")
 
                 output.write(chunk)
 
@@ -79,10 +77,8 @@ async def recognize_voice(
     except HTTPException:
         raise
 
-    except Exception:
-        raise HTTPException(
-            502, "Voice processing failed"
-        )
+    except Exception:  # noqa: BLE001
+        raise HTTPException(502, "Voice processing failed")
 
     finally:
         await file.close()

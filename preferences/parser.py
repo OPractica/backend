@@ -1,10 +1,9 @@
-
 import re
 import unicodedata
 
 from preferences.dictionary import (
-    PREFERENCE_DICTIONARY,
     AMBIGUOUS_PREFERENCES,
+    PREFERENCE_DICTIONARY,
 )
 
 

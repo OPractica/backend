@@ -1,12 +1,10 @@
-
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session
 
-from database import base
 from voice.models import VoiceRecord
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -33,7 +31,7 @@ def save_voice_record(
     text: str,
     language: str,
 ) -> VoiceRecord:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     with Session(engine) as session:
         record = VoiceRecord(
@@ -50,14 +48,12 @@ def save_voice_record(
 
 
 def delete_expired_records() -> int:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
     deleted_count = 0
 
     with Session(engine) as session:
         records = session.scalars(
-            select(VoiceRecord).where(
-                VoiceRecord.expires_at <= now
-            )
+            select(VoiceRecord).where(VoiceRecord.expires_at <= now)
         ).all()
 
         for record in records:

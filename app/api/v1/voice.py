@@ -1,4 +1,3 @@
-
 import asyncio
 import logging
 from pathlib import Path
@@ -110,6 +109,4 @@ async def recognize_voice(
             try:
                 audio_path.unlink(missing_ok=True)
             except OSError:
-                logger.exception(
-                    "Failed to remove temporary audio file."
-                )
+                logger.exception("Failed to remove temporary audio file.")

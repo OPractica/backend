@@ -1,9 +1,7 @@
-
-from datetime import datetime, timedelta, timezone
-
-from sqlalchemy import Column, DateTime, Integer, String, Text
+from datetime import UTC, datetime, timedelta
 
 from database import base
+from sqlalchemy import Column, DateTime, Integer, String, Text
 
 
 class VoiceRecord(base):
@@ -17,13 +15,12 @@ class VoiceRecord(base):
     created_at = Column(
         DateTime(timezone=True),
         nullable=False,
-        default=lambda: datetime.now(timezone.utc),
+        default=lambda: datetime.now(UTC),
     )
 
     expires_at = Column(
         DateTime(timezone=True),
         nullable=False,
         index=True,
-        default=lambda: datetime.now(timezone.utc)
-        + timedelta(hours=24),
+        default=lambda: datetime.now(UTC) + timedelta(hours=24),
     )

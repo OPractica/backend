@@ -1,11 +1,10 @@
-
 from pathlib import Path
 
-from voice.transcribe_audio import transcribe_audio
 from preferences.parser import extract_preferences
-from rag.search import search_seats
-from rag.context import retrieve_seat_context
 from prompts.loader import get_system_prompt
+from rag.context import retrieve_seat_context
+from rag.search import search_seats
+from voice.transcribe_audio import transcribe_audio
 
 
 def process_user_text(

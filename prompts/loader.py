@@ -1,7 +1,6 @@
-
-from prompts.ru import SYSTEM_PROMPT as RU_PROMPT
-from prompts.ro import SYSTEM_PROMPT as RO_PROMPT
 from prompts.en import SYSTEM_PROMPT as EN_PROMPT
+from prompts.ro import SYSTEM_PROMPT as RO_PROMPT
+from prompts.ru import SYSTEM_PROMPT as RU_PROMPT
 
 PROMPTS = {
     "ru": RU_PROMPT,

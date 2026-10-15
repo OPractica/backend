@@ -1,4 +1,3 @@
-
 SYSTEM_PROMPT = """
 Ești un asistent AI pentru rezervarea locurilor de lucru.
 

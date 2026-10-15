@@ -1,6 +1,6 @@
-
-from pathlib import Path
 from difflib import SequenceMatcher
+from pathlib import Path
+
 from voice.transcribe_audio import transcribe_audio
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -26,8 +26,7 @@ TEST_CASES = [
 
 def normalize(text):
     return " ".join(
-        char for char in text.lower()
-        if char.isalnum() or char.isspace()
+        char for char in text.lower() if char.isalnum() or char.isspace()
     ).strip()
 
 
@@ -54,11 +53,14 @@ def run_tests():
 
             expected = case["expected"]
 
-            similarity = SequenceMatcher(
-                None,
-                normalize(expected),
-                normalize(recognized),
-            ).ratio() * 100
+            similarity = (
+                SequenceMatcher(
+                    None,
+                    normalize(expected),
+                    normalize(recognized),
+                ).ratio()
+                * 100
+            )
 
             print(f"Expected:   {expected}")
             print(f"Recognized: {recognized}")
@@ -66,7 +68,7 @@ def run_tests():
 
             results.append((language, similarity))
 
-        except Exception as error:
+        except Exception as error:  # noqa: BLE001
             print(f"ERROR: {type(error).__name__}: {error}\n")
 
     print("=== SUMMARY ===")
