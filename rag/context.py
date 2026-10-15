@@ -1,37 +1,45 @@
-
-from rag.search import search_seats
+from app.services.rag.search import search_seats
 
 
 def retrieve_seat_context(
     text: str,
     language: str = "ru",
 ) -> str:
+    """Build context about matching desks for the AI agent."""
+
     result = search_seats(text, language)
 
-    if result["preferences"]["needs_clarification"]:
+    preferences = result["preferences"]
+    matches = result["matches"]
+
+    if preferences["needs_clarification"]:
         return (
             "Запрос содержит неоднозначные предпочтения. "
             "Перед бронированием необходимо уточнение."
         )
 
-    if not result["preferences"]["attributes"]:
+    if not preferences["attributes"]:
         return (
-            "Не удалось определить характеристики места. "
-            "Нужно уточнить пожелания пользователя."
+            "Не удалось определить характеристики рабочего места. "
+            "Необходимо уточнить пожелания пользователя."
         )
 
-    if not result["matches"]:
-        return "Подходящие рабочие места не найдены."
+    if not matches:
+        return "В демонстрационных данных подходящие рабочие места не найдены."
 
     lines = [
-        "Демонстрационные рабочие места "
-        "(доступность не проверена):"
+        (
+            "Найдены следующие демонстрационные рабочие места "
+            "(реальная доступность не проверена):"
+        )
     ]
 
-    for seat in result["matches"]:
+    for seat in matches:
         lines.append(
-            f"- {seat['label']}, этаж {seat['floor']}, "
-            f"зона {seat['zone']}: {seat['description']}"
+            f"- {seat['label']}, "
+            f"этаж {seat['floor']}, "
+            f"зона {seat['zone']}: "
+            f"{seat['description']}"
         )
 
     return "\n".join(lines)
