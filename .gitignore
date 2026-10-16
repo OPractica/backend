@@ -218,7 +218,3 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
-
-# Voice recordings and local test files
-test_audio/
-audio_storage/

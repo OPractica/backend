@@ -12,7 +12,6 @@ class Settings(BaseSettings):
     database_url: str
     groq_api_key: str
     jwt_secret: str
-    allow_demo_search: bool = False
 
 
 settings = Settings()
