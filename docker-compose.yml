@@ -1,20 +1,33 @@
+version: '3.8'
+
 services:
   db:
-    image: postgres:16          
-    container_name: office_db   
-    environment:                
+    image: postgres:16
+    container_name: office_db
+    environment:
       POSTGRES_USER: ${POSTGRES_USER:-office}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-office}
       POSTGRES_DB: ${POSTGRES_DB:-office_booking}
     ports:
-      - "5432:5432"             
+      - "5432:5432"
     volumes:
-      - pgdata:/var/lib/postgresql/data   
-    healthcheck:                
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-office} -d ${POSTGRES_DB:-office_booking}"]
       interval: 5s
       timeout: 3s
       retries: 10
+
+  api:
+    build: .
+    container_name: office_booking_api
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql+asyncpg://office:office@db:5432/office_booking
+    depends_on:
+      db:
+        condition: service_healthy
 
 volumes:
   pgdata:
