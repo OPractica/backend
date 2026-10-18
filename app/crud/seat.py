@@ -6,7 +6,8 @@
 # ---- надо будет путь поменять в случае чего
 
 
-from typing import Optional, Sequence
+from collections.abc import Sequence
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -14,9 +15,9 @@ from app.models.database import Seat
 
 
 async def get_active_seats(
-        session: AsyncSession,
-        floor: Optional[int] = None,
-        zone: Optional[str] = None
+    session: AsyncSession,
+    floor: int | None = None,
+    zone: str | None = None,
 ) -> Sequence[Seat]:
     query = select(Seat).where(Seat.is_active == True)
 
