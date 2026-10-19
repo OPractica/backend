@@ -1,0 +1,126 @@
+name: Guards
+
+on:
+  pull_request:
+    branches: [main, release]
+    types: [opened, edited, synchronize, reopened, labeled, unlabeled]
+  push:
+    branches: [main, release]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  forbidden-files:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+
+      - name: No caches, databases, env files or big files
+        run: |
+          bad=$(git ls-files \
+            | grep -E '(^|/)(__pycache__|node_modules|\.venv)/|\.(pyc|pyo|db|sqlite|sqlite3)$|(^|/)\.env(\..+)?$|(^|/)\.DS_Store$' \
+            | grep -vE '(^|/)\.env\.example$' || true)
+          big=$(git ls-tree -r -l HEAD \
+            | awk -F'\t' '{ split($1, a, " "); if (a[4] > 1048576) print $2 }' \
+            | grep -vE '(^|/)(uv\.lock|package-lock\.json|pnpm-lock\.yaml|yarn\.lock)$' || true)
+          if [ -n "$bad" ]; then
+            echo "::error::These files must not be in the repo. Remove them with 'git rm -r --cached <path>'."
+            echo "$bad"
+          fi
+          if [ -n "$big" ]; then
+            echo "::error::These files are bigger than 1 MB."
+            echo "$big"
+          fi
+          [ -z "$bad$big" ]
+
+  pr-naming:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: "PR title and commit messages follow 'type: description'"
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          pattern='^(feat|fix|docs|chore|refactor|test|style|ci|revert)(\([a-z0-9-]+\))?!?: .+|^Revert ".+"$'
+          fail=0
+          if ! grep -qE "$pattern" <<< "$TITLE"; then
+            echo "::error::PR title \"$TITLE\" must look like 'feat: add booking API'."
+            fail=1
+          fi
+          # Release pull requests carry commits that were already checked in their own pull requests
+          if [ "$HEAD_REF" = "main" ] || [ "$HEAD_REF" = "release" ]; then
+            exit $fail
+          fi
+          while IFS= read -r msg; do
+            if ! grep -qE "$pattern" <<< "$msg"; then
+              echo "::error::Commit message \"$msg\" must look like 'fix: allow cancelling a booking'."
+              fail=1
+            fi
+          done < <(git log --no-merges --format=%s HEAD^1..HEAD^2)
+          exit $fail
+
+  pr-size:
+    # Release pull requests (main -> release, release -> main) are big by design
+    if: github.event_name == 'pull_request' && github.head_ref != 'main' && github.head_ref != 'release'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 2
+
+      - name: Pull request is small enough
+        env:
+          MAX_LINES: 800
+          HAS_BIG_PR_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'big-pr') }}
+        run: |
+          lines=$(git diff --numstat HEAD^1 HEAD -- . \
+            ':(exclude)uv.lock' ':(exclude)package-lock.json' ':(exclude)pnpm-lock.yaml' ':(exclude)yarn.lock' \
+            | awk '$1 != "-" { sum += $1 + $2 } END { print sum + 0 }')
+          echo "Changed lines without lock files: $lines"
+          if [ "$lines" -le "$MAX_LINES" ]; then
+            exit 0
+          fi
+          if [ "$HAS_BIG_PR_LABEL" = "true" ]; then
+            echo "::warning::$lines lines changed, allowed by the big-pr label."
+            exit 0
+          fi
+          echo "::error::$lines lines changed, the limit is $MAX_LINES. Split the pull request, or add the big-pr label if it can't be split (a revert, generated code)."
+          exit 1
+
+  direct-push:
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Changes came through a pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+          BRANCH: ${{ github.ref_name }}
+          PUSHER: ${{ github.actor }}
+          FORCED: ${{ github.event.forced }}
+        run: |
+          if [ "$FORCED" = "true" ]; then
+            echo "::error::$PUSHER force-pushed to $BRANCH. The history of $BRANCH must never be rewritten."
+            exit 1
+          fi
+          for attempt in 1 2 3; do
+            merged=$(gh api "repos/$REPO/commits/$SHA/pulls" --jq 'map(select(.merged_at != null)) | length')
+            if [ "$merged" -gt 0 ]; then
+              echo "$SHA came from a merged pull request."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::$PUSHER pushed $SHA straight to $BRANCH without a pull request. Revert it and open a pull request instead, see CONTRIBUTING.md."
+          exit 1
