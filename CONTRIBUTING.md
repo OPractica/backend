@@ -106,6 +106,7 @@ Every pull request to `main` or `release` runs these checks. GitHub lets you mer
 | Check | Fails when |
 |---|---|
 | `ruff` | Lint or formatting errors. Fix them with `uv run ruff check --fix . && uv run ruff format .` |
+| `pytest` | A test fails. Run them locally with `docker compose up -d db` and `uv run pytest` |
 | `forbidden-files` | The repo contains `__pycache__`, `.pyc`, `.db` or `.sqlite`, `.env`, `node_modules`, `.DS_Store`, or a file bigger than 1 MB |
 | `pr-naming` | The pull request title or a commit message doesn't follow `type: description`, see [Commit messages](#commit-messages) |
 | `pr-size` | The pull request changes more than 800 lines, not counting lock files |
