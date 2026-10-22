@@ -15,7 +15,7 @@ from app.models.database import base
 config = context.config
 
 # set database URL dynamically from Pydantic settings
-config.set_main_option("sqlalchemy.url", str(settings.DATABASE_URL).replace("%", "%%"))
+config.set_main_option("sqlalchemy.url", str(settings.database_url).replace("%", "%%"))
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.
@@ -71,7 +71,7 @@ async def run_async_migrations() -> None:
     and associate a connection with the context.
     """
     connectable = create_async_engine(
-        str(settings.DATABASE_URL), poolclass=pool.NullPool
+        str(settings.database_url), poolclass=pool.NullPool
     )
 
     async with connectable.connect() as connection:
