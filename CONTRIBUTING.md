@@ -123,6 +123,15 @@ After every push to `main` or `release`, `direct-push` checks that the commit ca
 - **If your issue depends on one that is still in progress**, agree on the function signature with its owner and start with a stub. For example, use a fake user until `get_current_user` is merged.
 - **Small pull requests, merged often.** The longer a branch lives, the harder it is to merge.
 
+## Database Migrations
+
+When making changes to the database schema, always pull the latest changes before generating a new migration to avoid conflicts in the Alembic history:
+
+
+1. Always run `git pull main` before creating a migration.
+2. Generate your migration: `alembic revision --autogenerate -m "description"`
+3. If history splits and `alembic heads` shows two heads, resolve the conflict by running `alembic merge heads`.
+
 ## Commit messages
 
 Format: `type: short description`, in English, imperative mood ("add", not "added").
@@ -183,3 +192,5 @@ git push
 - Always start a new task from the latest `main`.
 - Never commit secrets: `.env` files, passwords, API keys. Put example values in `.env.example`.
 - After your branch is merged and deleted, run `git fetch --prune` to remove stale remote branches locally.
+
+
