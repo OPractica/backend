@@ -9,7 +9,7 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
-    DARABASE_URL: str
+    database_url: str
     groq_api_key: str
     groq_model: str = "qwen/qwen3.8-27b"
     office_timezone: str = "Europe/Chisinau"
