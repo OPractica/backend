@@ -1,9 +1,10 @@
 import asyncio
 from logging.config import fileConfig
 
-from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import create_async_engine
+
+from alembic import context
 
 # import application settings to load DATABASE_URL from .env
 from app.core.config import settings
@@ -70,9 +71,7 @@ async def run_async_migrations() -> None:
     and associate a connection with the context.
     """
     connectable = create_async_engine(
-        str(settings.DATABASE_URL),
-        poolclass=pool.NullPool,
-        connect_args={"ssl": "require"},
+        str(settings.DATABASE_URL), poolclass=pool.NullPool
     )
 
     async with connectable.connect() as connection:
