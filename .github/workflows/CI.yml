@@ -25,3 +25,35 @@ jobs:
 
       - name: Check formatting
         run: uv run --only-group dev ruff format --check .
+
+  pytest:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: office
+          POSTGRES_PASSWORD: office
+          POSTGRES_DB: office_booking
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U office -d office_booking"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      # Tests create and use office_booking_test next to this database
+      DATABASE_URL: postgresql+asyncpg://office:office@localhost:5432/office_booking
+      # Settings requires these, the tests don't call Groq or sign tokens
+      GROQ_API_KEY: dummy
+      JWT_SECRET: dummy
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v10.3.0
+
+      - name: Run tests
+        run: uv run pytest
