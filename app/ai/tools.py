@@ -7,7 +7,13 @@ from langchain_core.tools import BaseTool, tool
 
 from app.core.config import settings
 from app.core.db import SessionLocal
-from app.services.booking import BookingError, find_free_seats, list_user_bookings
+from app.services.booking import (
+    BookingError,
+    cancel_booking,
+    create_booking,
+    find_free_seats,
+    list_user_bookings,
+)
 
 OFFICE_TZ = ZoneInfo(settings.office_timezone)
 
@@ -39,7 +45,7 @@ def _fmt(moment: datetime) -> str:
 def make_tools(user_id: int) -> list[BaseTool]:
     """Собрать инструменты для конкретного пользователя.
 
-    user_id зашит в инструменты: модель не может смотреть чужие брони.
+    user_id зашит в инструменты: модель не может бронировать или отменять за других.
     """
 
     @tool
@@ -78,4 +84,40 @@ def make_tools(user_id: int) -> list[BaseTool]:
             for b in bookings
         )
 
-    return [search_free_seats, list_my_bookings]
+    @tool
+    async def book_seat(seat_id: int, start: str, end: str) -> str:
+        """Забронировать конкретное место для текущего пользователя.
+
+        seat_id: id места из результата search_free_seats (не придумывай id).
+        start: начало, формат ГГГГ-ММ-ДДTЧЧ:ММ, местное время.
+        end: конец в том же формате.
+        """
+        try:
+            starts_at, ends_at = _parse_interval(start, end)
+            async with SessionLocal() as session:
+                booking = await create_booking(
+                    session, user_id, seat_id, starts_at, ends_at, source="ai"
+                )
+                await session.commit()
+                return (
+                    f"Бронь создана: номер брони {booking.id}, место id={seat_id}, "
+                    f"с {_fmt(booking.starts_at)} до {_fmt(booking.ends_at)}."
+                )
+        except BookingError as error:
+            return f"Ошибка: {error}"
+
+    @tool
+    async def cancel_my_booking(booking_id: int) -> str:
+        """Отменить бронь текущего пользователя по номеру брони.
+
+        booking_id: номер брони из list_my_bookings или из подтверждения брони.
+        """
+        try:
+            async with SessionLocal() as session:
+                booking = await cancel_booking(session, user_id, booking_id)
+                await session.commit()
+                return f"Бронь {booking.id} отменена."
+        except BookingError as error:
+            return f"Ошибка: {error}"
+
+    return [search_free_seats, book_seat, cancel_my_booking, list_my_bookings]

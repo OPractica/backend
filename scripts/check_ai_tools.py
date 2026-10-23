@@ -14,10 +14,11 @@ END = "2026-12-01T10:00"
 
 
 async def main() -> None:
-    search, list_bookings = make_tools(USER_ID)
+    tools = {tool.name: tool for tool in make_tools(USER_ID)}
+    search, list_bookings = tools["search_free_seats"], tools["list_my_bookings"]
 
     print("=== Что видит модель ===")
-    for tool in (search, list_bookings):
+    for tool in tools.values():
         print(f"\n{tool.name}")
         print(f"Описание: {tool.description}")
         print(f"Аргументы: {list(tool.args)}")

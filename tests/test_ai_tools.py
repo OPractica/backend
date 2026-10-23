@@ -2,6 +2,7 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai import tools as ai_tools
@@ -66,6 +67,8 @@ def test_tool_cards_have_expected_names_and_arguments():
 
     assert cards == {
         "search_free_seats": ["start", "end", "zone"],
+        "book_seat": ["seat_id", "start", "end"],
+        "cancel_my_booking": ["booking_id"],
         "list_my_bookings": [],
     }
 
@@ -183,3 +186,129 @@ async def test_list_my_bookings_shows_only_own_bookings(
     assert f"бронь {mine.id}:" in result
     assert "2030-01-15 09:00 - 2030-01-15 10:00" in result
     assert f"бронь {theirs.id}:" not in result
+
+
+async def test_book_seat_creates_booking_for_current_user(
+    tools: dict, session: AsyncSession, user: User
+):
+    seat = await add_seat(session, "T-1", "window")
+
+    result = await tools["book_seat"].ainvoke(
+        {"seat_id": seat.id, "start": START, "end": END}
+    )
+
+    booking = await session.scalar(select(Booking).where(Booking.seat_id == seat.id))
+    assert booking is not None
+    assert booking.user_id == user.id
+    assert booking.source == "ai"
+    assert booking.status == "confirmed"
+    # 09:00 in the office is 07:00 UTC
+    assert booking.starts_at == datetime(2030, 1, 15, 7, tzinfo=UTC)
+    assert result.startswith("Бронь создана")
+    assert f"номер брони {booking.id}" in result
+    assert "с 2030-01-15 09:00 до 2030-01-15 10:00" in result
+
+
+async def test_book_seat_rejects_overlapping_booking(
+    tools: dict, session: AsyncSession
+):
+    seat = await add_seat(session, "T-1", "window")
+    other = await add_user(session, "other@example.com")
+    await add_booking(
+        session,
+        other,
+        seat,
+        datetime(2030, 1, 15, 7, tzinfo=UTC),
+        datetime(2030, 1, 15, 8, tzinfo=UTC),
+    )
+
+    result = await tools["book_seat"].ainvoke(
+        {"seat_id": seat.id, "start": START, "end": END}
+    )
+
+    bookings = (
+        await session.scalars(select(Booking).where(Booking.seat_id == seat.id))
+    ).all()
+    assert result.startswith("Ошибка:")
+    assert "занято" in result
+    assert len(bookings) == 1
+
+
+async def test_book_seat_with_unknown_seat_returns_error_text(tools: dict):
+    result = await tools["book_seat"].ainvoke(
+        {"seat_id": 999999, "start": START, "end": END}
+    )
+
+    assert result.startswith("Ошибка:")
+    assert "не найдено" in result
+
+
+async def test_book_seat_with_unreadable_time_creates_nothing(
+    tools: dict, session: AsyncSession
+):
+    seat = await add_seat(session, "T-1", "window")
+
+    result = await tools["book_seat"].ainvoke(
+        {"seat_id": seat.id, "start": "завтра", "end": END}
+    )
+
+    bookings = (await session.scalars(select(Booking))).all()
+    assert result.startswith("Ошибка:")
+    assert bookings == []
+
+
+async def test_cancel_own_booking(tools: dict, session: AsyncSession, user: User):
+    seat = await add_seat(session, "T-1", "window")
+    booking = await add_booking(
+        session,
+        user,
+        seat,
+        datetime(2030, 1, 15, 7, tzinfo=UTC),
+        datetime(2030, 1, 15, 8, tzinfo=UTC),
+    )
+
+    result = await tools["cancel_my_booking"].ainvoke({"booking_id": booking.id})
+
+    assert result == f"Бронь {booking.id} отменена."
+    assert booking.status == "cancelled"
+
+
+async def test_cancel_foreign_booking_is_rejected(tools: dict, session: AsyncSession):
+    seat = await add_seat(session, "T-1", "window")
+    other = await add_user(session, "other@example.com")
+    booking = await add_booking(
+        session,
+        other,
+        seat,
+        datetime(2030, 1, 15, 7, tzinfo=UTC),
+        datetime(2030, 1, 15, 8, tzinfo=UTC),
+    )
+
+    result = await tools["cancel_my_booking"].ainvoke({"booking_id": booking.id})
+
+    assert result.startswith("Ошибка:")
+    assert booking.status == "confirmed"
+
+
+async def test_cancel_unknown_booking_returns_error_text(tools: dict):
+    result = await tools["cancel_my_booking"].ainvoke({"booking_id": 999999})
+
+    assert result.startswith("Ошибка:")
+    assert "не найдена" in result
+
+
+async def test_booked_seat_becomes_free_again_after_cancel(
+    tools: dict, session: AsyncSession
+):
+    seat = await add_seat(session, "T-1", "window")
+    window = {"start": START, "end": END}
+
+    booked = await tools["book_seat"].ainvoke({"seat_id": seat.id, **window})
+    during = await tools["search_free_seats"].ainvoke(window)
+    booking = await session.scalar(select(Booking).where(Booking.seat_id == seat.id))
+    await tools["cancel_my_booking"].ainvoke({"booking_id": booking.id})
+    after = await tools["search_free_seats"].ainvoke(window)
+
+    assert booked.startswith("Бронь создана")
+    assert during == "Свободных мест на это время нет."
+    assert "T-1" in after
