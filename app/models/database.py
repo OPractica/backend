@@ -50,3 +50,16 @@ class Booking(base):
     is_checked_in = Column(
         Boolean, default=False, nullable=False
     )  # ?Подтвердил ли пользователь свое присутствие
+
+
+class RefreshToken(base):
+    __tablename__ = "refresh_tokens"
+    id = Column(Integer, primary_key=True, index=True)
+
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    token_hash = Column(String, nullable=False, unique=True, index=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
