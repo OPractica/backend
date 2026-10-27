@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr
 
@@ -38,6 +38,12 @@ class SeatResponse(BaseModel):
     is_active: bool
     attributes: dict[str, Any] = {}
     model_config = ConfigDict(from_attributes=True)
+
+
+class SeatAvailability(BaseModel):
+    id: int
+    label: str
+    status: Literal["free", "booked"]
 
 
 class BookingCreate(BaseModel):

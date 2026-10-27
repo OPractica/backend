@@ -35,6 +35,24 @@ async def find_free_seats(
     return list(result.scalars().all())
 
 
+async def get_seats_availability(
+    session: AsyncSession,
+    starts_at: datetime,
+    ends_at: datetime,
+):
+    is_booked = exists().where(
+        Booking.seat_id == Seat.id,
+        *_overlap_conditions(starts_at, ends_at),
+    )
+    stmt = (
+        select(Seat.id, Seat.label, is_booked.label("is_booked"))
+        .where(Seat.is_active.is_(True))
+        .order_by(Seat.id)
+    )
+    result = await session.execute(stmt)
+    return result.all()
+
+
 async def create_booking(
     session: AsyncSession,
     user_id: int,

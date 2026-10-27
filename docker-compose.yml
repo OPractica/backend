@@ -23,6 +23,7 @@ services:
     container_name: office_booking_api
     ports:
       - "8000:8000"
+    env_file: .env
     environment:
       - DATABASE_URL=postgresql+asyncpg://office:office@db:5432/office_booking
     depends_on:
