@@ -26,9 +26,17 @@ services:
     env_file: .env
     environment:
       - DATABASE_URL=postgresql+asyncpg://office:office@db:5432/office_booking
+      - SMTP_HOST=mailpit
     depends_on:
       db:
         condition: service_healthy
+    
+  mailpit:
+    image: axllent/mailpit
+    container_name: office_booking_mailpit
+    ports:
+      - "1025:1025"
+      - "8025:8025"
 
 volumes:
   pgdata:
