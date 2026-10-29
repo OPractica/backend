@@ -15,5 +15,11 @@ class Settings(BaseSettings):
     office_timezone: str = "Europe/Chisinau"
     jwt_secret: str
 
+    smtp_host: str = "localhost"
+    smtp_port: int = 1025
+    smtp_user: str = ""
+    smtp_password: str = ""
+    email_from: str = "noreply@office-booking.local"
+
 
 settings = Settings()
