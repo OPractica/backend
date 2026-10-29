@@ -19,7 +19,7 @@ class SmtpEmailSender(EmailSender):
         message = EmailMessage()
         message["From"] = settings.email_from
         message["To"] = to
-        message["Subhect"] = subject
+        message["Subject"] = subject
         message.set_content("Please open this email in an HTML-capable client.")
         message.add_alternative(html, subtype="html")
 
