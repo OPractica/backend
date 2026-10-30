@@ -1,6 +1,7 @@
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 
+from app.api.deps import CurrentUser
 from app.core.db import SessionDep
 from app.core.security import create_access_token, verify_password
 from app.crud.refresh_token import create_refresh_token
@@ -46,3 +47,8 @@ async def login(session: SessionDep, data: UserLogin) -> TokenResponse:
     refresh_token = await create_refresh_token(session, user.id)
     await session.commit()
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
+
+
+@router.get("/me", response_model=UserResponse)
+async def me(user: CurrentUser) -> UserResponse:
+    return user

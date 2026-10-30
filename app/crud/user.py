@@ -25,3 +25,11 @@ async def create_user(session: AsyncSession, data: UserCreate) -> User:
     await session.commit()
     await session.refresh(user)
     return user
+
+
+async def get_user_by_id(session: AsyncSession, user_id: int) -> User | None:
+    query = select(User).where(User.id == user_id)
+
+    result = await session.scalar(query)
+
+    return result
