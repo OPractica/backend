@@ -6,4 +6,4 @@
 from app.ai.llm import get_llm
 
 answer = get_llm().invoke("Привет! Представься одним предложением.")
-print(answer.content)
+print(answer.text)
