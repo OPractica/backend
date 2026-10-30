@@ -11,7 +11,8 @@ class Settings(BaseSettings):
 
     database_url: str
     groq_api_key: str
-    groq_model: str = "qwen/qwen3.8-27b"
+    google_api_key: str = ""
+    llm_model: str = "gemini-3.5-flash-lite"
     office_timezone: str = "Europe/Chisinau"
     jwt_secret: str
     access_token_minutes: int = 15
