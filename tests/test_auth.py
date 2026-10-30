@@ -1,15 +1,22 @@
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
+import jwt
 import pytest
-from httpx import AsyncClient
+from httpx import AsyncClient, Response
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.security import verify_password
+from app.core.config import settings
+from app.core.security import JWT_ALGORITHM, hash_refresh_token, verify_password
 from app.crud.user import get_user_by_email
+from app.models.database import RefreshToken
 
 pytestmark = pytest.mark.anyio
 
 REGISTER_URL = "/api/v1/auth/register"
+LOGIN_URL = "/api/v1/auth/login"
+INVALID_CREDENTIALS = "invalid email or password"
 PASSWORD = "secret-password"
 
 
@@ -102,3 +109,84 @@ async def test_register_invalid_email_returns_422(client: AsyncClient):
     response = await client.post(REGISTER_URL, json=new_user() | {"email": "nope"})
 
     assert response.status_code == 422
+
+
+async def register_and_login(client: AsyncClient, data: dict) -> Response:
+    await client.post(REGISTER_URL, json=data)
+    return await client.post(
+        LOGIN_URL, json={"email": data["email"], "password": data["password"]}
+    )
+
+
+async def test_login_returns_tokens(client: AsyncClient, session: AsyncSession):
+    data = new_user()
+
+    response = await register_and_login(client, data)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["token_type"] == "bearer"
+    user = await get_user_by_email(session, data["email"])
+    payload = jwt.decode(
+        body["access_token"], settings.jwt_secret, algorithms=[JWT_ALGORITHM]
+    )
+    assert payload["sub"] == str(user.id)
+    assert payload["exp"] - payload["iat"] == settings.access_token_minutes * 60
+
+
+async def test_login_stores_hashed_refresh_token(
+    client: AsyncClient, session: AsyncSession
+):
+    data = new_user()
+
+    response = await register_and_login(client, data)
+
+    refresh_token = response.json()["refresh_token"]
+    user = await get_user_by_email(session, data["email"])
+    stored = await session.scalar(
+        select(RefreshToken).where(RefreshToken.user_id == user.id)
+    )
+    assert stored is not None
+    assert stored.token_hash == hash_refresh_token(refresh_token)
+    assert stored.token_hash != refresh_token
+    assert stored.revoked_at is None
+    lifetime = stored.expires_at - datetime.now(UTC)
+    assert timedelta(days=settings.refresh_token_days) - lifetime < timedelta(minutes=1)
+
+
+async def test_login_wrong_password_returns_401(client: AsyncClient):
+    data = new_user()
+    await client.post(REGISTER_URL, json=data)
+
+    response = await client.post(
+        LOGIN_URL, json={"email": data["email"], "password": "wrong-password"}
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == INVALID_CREDENTIALS
+
+
+async def test_login_unknown_email_returns_401(client: AsyncClient):
+    # Same message as for a wrong password, so nobody can check which emails exist
+    response = await client.post(
+        LOGIN_URL, json={"email": new_user()["email"], "password": PASSWORD}
+    )
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == INVALID_CREDENTIALS
+
+
+async def test_login_inactive_user_returns_403(
+    client: AsyncClient, session: AsyncSession
+):
+    data = new_user()
+    await client.post(REGISTER_URL, json=data)
+    user = await get_user_by_email(session, data["email"])
+    user.is_active = False
+    await session.flush()
+
+    response = await client.post(
+        LOGIN_URL, json={"email": data["email"], "password": PASSWORD}
+    )
+
+    assert response.status_code == 403

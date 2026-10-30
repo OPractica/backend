@@ -45,9 +45,10 @@ jobs:
     env:
       # Tests create and use office_booking_test next to this database
       DATABASE_URL: postgresql+asyncpg://office:office@localhost:5432/office_booking
-      # Settings requires these, the tests don't call Groq or sign tokens
+      # Settings requires it, the tests don't call Groq
       GROQ_API_KEY: dummy
-      JWT_SECRET: dummy
+      # Test-only key, the tests sign tokens and pyjwt wants at least 32 bytes
+      JWT_SECRET: b3096e86519789484df40a3360d0798c0682245546b38f947e135b9281598fc5
     steps:
       - name: Checkout repo
         uses: actions/checkout@v7

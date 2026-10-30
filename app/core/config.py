@@ -14,6 +14,8 @@ class Settings(BaseSettings):
     groq_model: str = "qwen/qwen3.8-27b"
     office_timezone: str = "Europe/Chisinau"
     jwt_secret: str
+    access_token_minutes: int = 15
+    refresh_token_days: int = 7
 
     smtp_host: str = "localhost"
     smtp_port: int = 1025
