@@ -16,6 +16,7 @@ pytestmark = pytest.mark.anyio
 
 REGISTER_URL = "/api/v1/auth/register"
 LOGIN_URL = "/api/v1/auth/login"
+ME_URL = "/api/v1/auth/me"
 INVALID_CREDENTIALS = "invalid email or password"
 PASSWORD = "secret-password"
 
@@ -188,5 +189,72 @@ async def test_login_inactive_user_returns_403(
     response = await client.post(
         LOGIN_URL, json={"email": data["email"], "password": PASSWORD}
     )
+
+    assert response.status_code == 403
+
+
+def bearer(token: str) -> dict:
+    return {"Authorization": f"Bearer {token}"}
+
+
+async def test_me_returns_current_user(client: AsyncClient):
+    data = new_user()
+    token = (await register_and_login(client, data)).json()["access_token"]
+
+    response = await client.get(ME_URL, headers=bearer(token))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["email"] == data["email"]
+    assert "password_hash" not in body
+
+
+async def test_me_without_token_returns_401(client: AsyncClient):
+    response = await client.get(ME_URL)
+
+    assert response.status_code == 401
+    assert response.headers["www-authenticate"] == "Bearer"
+
+
+async def test_me_expired_token_returns_401(client: AsyncClient, session: AsyncSession):
+    data = new_user()
+    await client.post(REGISTER_URL, json=data)
+    user = await get_user_by_email(session, data["email"])
+    # Signed like a real token, but it ran out a minute ago
+    now = datetime.now(UTC)
+    token = jwt.encode(
+        {
+            "sub": str(user.id),
+            "iat": now - timedelta(minutes=16),
+            "exp": now - timedelta(minutes=1),
+        },
+        settings.jwt_secret,
+        algorithm=JWT_ALGORITHM,
+    )
+
+    response = await client.get(ME_URL, headers=bearer(token))
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "token expired"
+    assert response.headers["www-authenticate"] == "Bearer"
+
+
+async def test_me_invalid_token_returns_401(client: AsyncClient):
+    response = await client.get(ME_URL, headers=bearer("garbage"))
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "invalid token"
+    assert response.headers["www-authenticate"] == "Bearer"
+
+
+async def test_me_inactive_user_returns_403(client: AsyncClient, session: AsyncSession):
+    # The token is still valid, but the user was deactivated after login
+    data = new_user()
+    token = (await register_and_login(client, data)).json()["access_token"]
+    user = await get_user_by_email(session, data["email"])
+    user.is_active = False
+    await session.flush()
+
+    response = await client.get(ME_URL, headers=bearer(token))
 
     assert response.status_code == 403
