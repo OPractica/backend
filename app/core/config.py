@@ -23,5 +23,10 @@ class Settings(BaseSettings):
     smtp_password: str = ""
     email_from: str = "noreply@office-booking.local"
 
+    graph_tenant_id: str = ""
+    graph_client_id: str = ""
+    graph_client_secret: str = ""
+    graph_sender: str = ""
+
 
 settings = Settings()
