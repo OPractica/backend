@@ -29,6 +29,17 @@ def create_access_token(user_id: int) -> str:
     return jwt.encode(payload, settings.jwt_secret, algorithm=JWT_ALGORITHM)
 
 
+def decode_access_token(token: str) -> int:
+    payload = jwt.decode(
+        token,
+        settings.jwt_secret,
+        algorithms=[JWT_ALGORITHM],
+        options={"require": ["exp", "sub"]},
+    )
+
+    return int(payload["sub"])
+
+
 def generate_refresh_token() -> str:
     return secrets.token_urlsafe(32)
 
