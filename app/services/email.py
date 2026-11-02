@@ -1,6 +1,5 @@
 import asyncio
 import logging
-
 from abc import ABC, abstractmethod
 from email.message import EmailMessage
 
@@ -9,8 +8,6 @@ import httpx
 import msal
 
 from app.core.config import settings
-
-
 
 logger = logging.getLogger(__name__)
 
@@ -42,7 +39,6 @@ class SmtpEmailSender(EmailSender):
             start_tls=bool(settings.smtp_user),
         )
         logger.info("Email sent via SMTP to %s", to)
-
 
 
 class GraphEmailSender(EmailSender):
