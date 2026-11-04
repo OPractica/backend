@@ -69,3 +69,7 @@ class BookingResponse(BaseModel):
 class BookingUpdate(BaseModel):
     status: str | None = None
     is_checked_in: bool | None = None
+
+
+class RefreshRequest(BaseModel):
+    refresh_token: str

@@ -17,6 +17,8 @@ pytestmark = pytest.mark.anyio
 REGISTER_URL = "/api/v1/auth/register"
 LOGIN_URL = "/api/v1/auth/login"
 ME_URL = "/api/v1/auth/me"
+REFRESH_URL = "/api/v1/auth/refresh"
+LOGOUT_URL = "/api/v1/auth/logout"
 INVALID_CREDENTIALS = "invalid email or password"
 PASSWORD = "secret-password"
 
@@ -258,3 +260,107 @@ async def test_me_inactive_user_returns_403(client: AsyncClient, session: AsyncS
     response = await client.get(ME_URL, headers=bearer(token))
 
     assert response.status_code == 403
+
+
+async def stored_refresh_token(session: AsyncSession, token: str) -> RefreshToken:
+    return await session.scalar(
+        select(RefreshToken).where(RefreshToken.token_hash == hash_refresh_token(token))
+    )
+
+
+async def test_refresh_returns_new_tokens(client: AsyncClient):
+    data = new_user()
+    old_refresh = (await register_and_login(client, data)).json()["refresh_token"]
+
+    response = await client.post(REFRESH_URL, json={"refresh_token": old_refresh})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["token_type"] == "bearer"
+    assert body["refresh_token"] != old_refresh
+    me = await client.get(ME_URL, headers=bearer(body["access_token"]))
+    assert me.status_code == 200
+    assert me.json()["email"] == data["email"]
+
+
+async def test_refresh_revokes_old_token(client: AsyncClient, session: AsyncSession):
+    old_refresh = (await register_and_login(client, new_user())).json()["refresh_token"]
+
+    await client.post(REFRESH_URL, json={"refresh_token": old_refresh})
+
+    stored = await stored_refresh_token(session, old_refresh)
+    assert stored.revoked_at is not None
+
+
+async def test_refresh_with_rotated_token_returns_401(client: AsyncClient):
+    old_refresh = (await register_and_login(client, new_user())).json()["refresh_token"]
+    await client.post(REFRESH_URL, json={"refresh_token": old_refresh})
+
+    response = await client.post(REFRESH_URL, json={"refresh_token": old_refresh})
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "invalid refresh token"
+
+
+async def test_refresh_new_token_works_after_rotation(client: AsyncClient):
+    old_refresh = (await register_and_login(client, new_user())).json()["refresh_token"]
+    new_refresh = (
+        await client.post(REFRESH_URL, json={"refresh_token": old_refresh})
+    ).json()["refresh_token"]
+
+    response = await client.post(REFRESH_URL, json={"refresh_token": new_refresh})
+
+    assert response.status_code == 200
+
+
+async def test_refresh_unknown_token_returns_401(client: AsyncClient):
+    response = await client.post(REFRESH_URL, json={"refresh_token": "garbage"})
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "invalid refresh token"
+
+
+async def test_refresh_expired_token_returns_401(
+    client: AsyncClient, session: AsyncSession
+):
+    refresh = (await register_and_login(client, new_user())).json()["refresh_token"]
+    stored = await stored_refresh_token(session, refresh)
+    stored.expires_at = datetime.now(UTC) - timedelta(minutes=1)
+    await session.flush()
+
+    response = await client.post(REFRESH_URL, json={"refresh_token": refresh})
+
+    assert response.status_code == 401
+
+
+async def test_refresh_inactive_user_returns_401(
+    client: AsyncClient, session: AsyncSession
+):
+    data = new_user()
+    refresh = (await register_and_login(client, data)).json()["refresh_token"]
+    user = await get_user_by_email(session, data["email"])
+    user.is_active = False
+    await session.flush()
+
+    response = await client.post(REFRESH_URL, json={"refresh_token": refresh})
+
+    assert response.status_code == 401
+
+
+async def test_logout_revokes_refresh_token(client: AsyncClient, session: AsyncSession):
+    refresh = (await register_and_login(client, new_user())).json()["refresh_token"]
+
+    response = await client.post(LOGOUT_URL, json={"refresh_token": refresh})
+
+    assert response.status_code == 204
+    stored = await stored_refresh_token(session, refresh)
+    assert stored.revoked_at is not None
+    refreshed = await client.post(REFRESH_URL, json={"refresh_token": refresh})
+    assert refreshed.status_code == 401
+
+
+async def test_logout_unknown_token_returns_204(client: AsyncClient):
+    # Logout is idempotent: an unknown or revoked token means already logged out
+    response = await client.post(LOGOUT_URL, json={"refresh_token": "garbage"})
+
+    assert response.status_code == 204
