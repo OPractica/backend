@@ -82,3 +82,12 @@ async def refresh(session: SessionDep, data: RefreshRequest) -> TokenResponse:
     refresh_token = await create_refresh_token(session, user.id)
     await session.commit()
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
+
+
+@router.post("/logout", status_code=204)
+async def logout(session: SessionDep, data: RefreshRequest) -> None:
+    # Always 204: an unknown or already revoked token means the user is logged out
+    token = await find_refresh_token(session, data.refresh_token)
+    if token is not None:
+        await revoke_refresh_token(session, token)
+    await session.commit()
