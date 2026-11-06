@@ -364,3 +364,52 @@ async def test_logout_unknown_token_returns_204(client: AsyncClient):
     response = await client.post(LOGOUT_URL, json={"refresh_token": "garbage"})
 
     assert response.status_code == 204
+
+
+async def test_refresh_keeps_family_and_login_starts_new_one(
+    client: AsyncClient, session: AsyncSession
+):
+    data = new_user()
+    first = (await register_and_login(client, data)).json()["refresh_token"]
+    rotated = (await client.post(REFRESH_URL, json={"refresh_token": first})).json()[
+        "refresh_token"
+    ]
+    other_login = (
+        await client.post(
+            LOGIN_URL, json={"email": data["email"], "password": PASSWORD}
+        )
+    ).json()["refresh_token"]
+
+    first_family = (await stored_refresh_token(session, first)).family_id
+    assert (await stored_refresh_token(session, rotated)).family_id == first_family
+    assert (await stored_refresh_token(session, other_login)).family_id != first_family
+
+
+async def test_refresh_reuse_revokes_newest_token_of_family(client: AsyncClient):
+    old_refresh = (await register_and_login(client, new_user())).json()["refresh_token"]
+    new_refresh = (
+        await client.post(REFRESH_URL, json={"refresh_token": old_refresh})
+    ).json()["refresh_token"]
+
+    reused = await client.post(REFRESH_URL, json={"refresh_token": old_refresh})
+    newest = await client.post(REFRESH_URL, json={"refresh_token": new_refresh})
+
+    assert reused.status_code == 401
+    assert newest.status_code == 401
+
+
+async def test_refresh_reuse_keeps_other_login_valid(client: AsyncClient):
+    # Another device logged in separately has its own family and stays logged in
+    data = new_user()
+    old_refresh = (await register_and_login(client, data)).json()["refresh_token"]
+    other_device = (
+        await client.post(
+            LOGIN_URL, json={"email": data["email"], "password": PASSWORD}
+        )
+    ).json()["refresh_token"]
+    await client.post(REFRESH_URL, json={"refresh_token": old_refresh})
+
+    await client.post(REFRESH_URL, json={"refresh_token": old_refresh})
+    response = await client.post(REFRESH_URL, json={"refresh_token": other_device})
+
+    assert response.status_code == 200
