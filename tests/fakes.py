@@ -8,9 +8,11 @@ class ScriptedChatModel(BaseChatModel):
     """Фейковая модель для тестов: отвечает заранее заданными сообщениями по порядку.
 
     Запоминает, какие сообщения получала на каждом шаге, чтобы тест мог их проверить.
+    errors: исключения, которые модель выбросит по одному перед ответами (имитация сбоев).
     """
 
     responses: list[AIMessage]
+    errors: list[Exception] = Field(default_factory=list)
     seen: list[list[BaseMessage]] = Field(default_factory=list)
 
     @property
@@ -22,6 +24,8 @@ class ScriptedChatModel(BaseChatModel):
         return self
 
     def _generate(self, messages, stop=None, run_manager=None, **kwargs) -> ChatResult:
+        if self.errors:
+            raise self.errors.pop(0)
         self.seen.append(list(messages))
         message = self.responses[len(self.seen) - 1]
         return ChatResult(generations=[ChatGeneration(message=message)])
