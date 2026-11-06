@@ -1,3 +1,5 @@
+from datetime import UTC, datetime
+
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy.exc import IntegrityError
 
@@ -8,6 +10,7 @@ from app.crud.refresh_token import (
     create_refresh_token,
     find_refresh_token,
     revoke_refresh_token,
+    revoke_token_family,
 )
 from app.crud.user import create_user, get_user_by_email, get_user_by_id
 from app.schemas.schemas import (
@@ -67,7 +70,15 @@ async def me(user: CurrentUser) -> UserResponse:
 @router.post("/refresh", response_model=TokenResponse)
 async def refresh(session: SessionDep, data: RefreshRequest) -> TokenResponse:
     token = await find_refresh_token(session, data.refresh_token)
-    if token is None:
+    if token is None or token.expires_at <= datetime.now(UTC):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid refresh token"
+        )
+    if token.revoked_at is not None:
+        # A rotated token came back: it may be stolen, so end the whole login
+        # session. Commit before raising, otherwise the revoke is rolled back.
+        await revoke_token_family(session, token.family_id)
+        await session.commit()
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid refresh token"
         )
@@ -79,7 +90,7 @@ async def refresh(session: SessionDep, data: RefreshRequest) -> TokenResponse:
             status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid refresh token"
         )
     access_token = create_access_token(user.id)
-    refresh_token = await create_refresh_token(session, user.id)
+    refresh_token = await create_refresh_token(session, user.id, token.family_id)
     await session.commit()
     return TokenResponse(access_token=access_token, refresh_token=refresh_token)
 
@@ -88,6 +99,6 @@ async def refresh(session: SessionDep, data: RefreshRequest) -> TokenResponse:
 async def logout(session: SessionDep, data: RefreshRequest) -> None:
     # Always 204: an unknown or already revoked token means the user is logged out
     token = await find_refresh_token(session, data.refresh_token)
-    if token is not None:
+    if token is not None and token.revoked_at is None:
         await revoke_refresh_token(session, token)
     await session.commit()
