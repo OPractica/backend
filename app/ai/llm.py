@@ -4,6 +4,10 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from app.core.config import settings
 
 
+class LLMNotConfiguredError(RuntimeError):
+    """Не задан ключ модели в настройках."""
+
+
 def get_llm() -> BaseChatModel:
     """
     температуру не задаем: значение по умолчанию (1.0),
@@ -11,7 +15,7 @@ def get_llm() -> BaseChatModel:
     thinking_level="low": меньше раздумий, ответы быстрее и расходуют меньше лимита.
     """
     if not settings.google_api_key:
-        raise RuntimeError(
+        raise LLMNotConfiguredError(
             "GOOGLE_API_KEY is not set. Add it to .env (see .env.example)."
         )
     return ChatGoogleGenerativeAI(

@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 class UserCreate(BaseModel):
@@ -73,3 +73,13 @@ class BookingUpdate(BaseModel):
 
 class RefreshRequest(BaseModel):
     refresh_token: str
+
+
+class ChatRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=2000)
+    session_id: str | None = Field(default=None, max_length=64)
+
+
+class ChatResponse(BaseModel):
+    answer: str
+    session_id: str
