@@ -1,6 +1,9 @@
 from fastapi import FastAPI
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.api.errors import http_exception_handler, validation_exception_handler
 from app.api.v1.ai import router as ai_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.bookings import router as bookings_router
@@ -9,6 +12,8 @@ from app.api.v1.seats import router as seats_router
 from app.core.config import settings
 
 app = FastAPI()
+app.add_exception_handler(StarletteHTTPException, http_exception_handler)
+app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
