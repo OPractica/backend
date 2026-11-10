@@ -8,6 +8,7 @@ from app.models.database import Seat
 from app.schemas.schemas import BookingCreate, BookingResponse
 from app.services.booking import (
     BookingError,
+    BookingRuleError,
     cancel_booking,
     create_booking,
     list_user_bookings,
@@ -44,6 +45,10 @@ async def make_booking(
             source=booking_in.source,
         )
         await session.commit()
+    except BookingRuleError as err:
+        raise HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(err)
+        ) from None
     except BookingError as err:
         raise HTTPException(status.HTTP_409_CONFLICT, detail=str(err)) from None
 

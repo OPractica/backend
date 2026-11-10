@@ -29,5 +29,10 @@ class Settings(BaseSettings):
     graph_client_secret: str = ""
     graph_sender: str = ""
 
+    booking_max_hours: int = 10
+    office_open_hour: int = 9
+    office_close_hour: int = 19
+    booking_min_minutes: int = 15
+
 
 settings = Settings()
