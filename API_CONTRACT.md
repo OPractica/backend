@@ -27,21 +27,59 @@ Authorization: Bearer <access_token>
 - A refresh token is **single-use** (rotation): after `/auth/refresh` the old one stops working,
   so always save the new one. If an old token is used again, the server treats it as stolen
   and revokes all tokens of that login session (the user has to log in again).
-- `401` on a 🔒 endpoint: `{"detail": "token expired" | "invalid token"}`.
-- `403` `{"detail": "user is not active"}`: the user is deactivated.
+- `401` on a 🔒 endpoint: `code` is `token_expired`, `invalid_token` or `unauthorized` (no header).
+- `403` with `code: "user_inactive"`: the user is deactivated.
 
 ### Error format
 
-All errors: `{"detail": "<text>"}`.
-Validation errors (`422`) use the standard FastAPI format:
+Every error has the same two fields:
 
 ```json
-{"detail": [{"type": "...", "loc": ["body", "email"], "msg": "...", "input": "..."}]}
+{"detail": "Место 7-A01 уже занято на это время.", "code": "seat_already_booked"}
 ```
 
-There is no unified `code` field yet (issue #25).
-Note: `detail` texts of booking rule errors are currently in Russian. Do not rely on the text for logic;
-rely on the status code (see `POST /bookings`).
+- `code` is a stable machine-readable string. Use it for logic and for translated UI messages.
+- `detail` is a human-readable text, may change, and for booking rules it is currently in Russian.
+  Do not branch on it.
+
+Validation errors (`422`) keep the standard FastAPI list in `detail` and have `code: "validation_error"`:
+
+```json
+{"detail": [{"type": "...", "loc": ["body", "email"], "msg": "...", "input": "..."}], "code": "validation_error"}
+```
+
+Error codes:
+
+| code | status | when |
+|---|---|---|
+| `unauthorized` | 401 | no `Authorization` header |
+| `token_expired` | 401 | access token expired, call `/auth/refresh` |
+| `invalid_token` | 401 | access token is invalid |
+| `invalid_credentials` | 401 | wrong email or password |
+| `invalid_refresh_token` | 401 | refresh token unknown, expired, used or user deactivated |
+| `user_inactive` | 403 | user is deactivated |
+| `email_taken` | 409 | email already registered |
+| `validation_error` | 422 | invalid request body or parameters (`detail` is a list) |
+| `invalid_time_range` | 422 | end is not later than start |
+| `booking_in_past` | 422 | booking starts in the past |
+| `booking_spans_days` | 422 | booking does not start and end on the same day |
+| `office_closed_weekend` | 422 | Saturday or Sunday |
+| `outside_office_hours` | 422 | outside 09:00–19:00 office time |
+| `booking_too_long` | 422 | longer than the maximum duration |
+| `booking_too_short` | 422 | shorter than the minimum duration |
+| `user_booking_overlap` | 422 | the user already has an overlapping booking |
+| `booking_rule_violated` | 422 | any other booking rule (fallback) |
+| `seat_not_found` | 409 | seat does not exist or is inactive |
+| `seat_already_booked` | 409 | seat is booked for this time |
+| `booking_not_found` | 404 | booking does not exist or belongs to someone else |
+| `booking_already_cancelled` | 404 | booking is already cancelled |
+| `not_found` | 404 | unknown URL |
+| `ai_busy` | 429 | AI model rate limit |
+| `ai_unavailable` | 503 | AI assistant is unavailable |
+| `database_unavailable` | 503 | database is unavailable |
+
+Other statuses without a specific code get a generic one (`bad_request`, `forbidden`,
+`method_not_allowed`, `conflict`, `too_many_requests`, `service_unavailable`, or `error`).
 
 ### Dates and time
 
@@ -53,8 +91,8 @@ rely on the status code (see `POST /bookings`).
 
 ### CORS
 
-CORS is **not available on `main` yet** (issue #25, in progress on branch `feat/25-cors`). The allowed
-origins will come from the `CORS_ORIGINS` setting. Until it is merged and deployed, browser requests
+CORS is implemented in branch `feat/25-cors` and is **not on `main` or the deployed API yet**. The allowed
+origins come from the `CORS_ORIGINS` setting (comma-separated; default `http://localhost:5173`). Until it is merged and deployed, browser requests
 from another origin are blocked; use a dev-server proxy in the meantime. Tell the backend which
 frontend origins you need (production and local dev server, e.g. `http://localhost:5173`).
 
@@ -69,7 +107,7 @@ Checks that the process is alive. No auth.
 ### `GET /health`
 Checks the process and the database. No auth.
 - **200** `{"status": "ok"}`
-- **503** `{"detail": "database unavailable"}`
+- **503** `{"detail": "database unavailable", "code": "database_unavailable"}`
 
 ---
 
@@ -90,7 +128,7 @@ Request:
 
 Responses:
 - **201** `User`
-- **409** `{"detail": "email is already in use"}`
+- **409** `{"detail": "email is already in use", "code": "email_taken"}`
 - **422** invalid email or fields
 
 ### `POST /auth/login`
@@ -100,8 +138,8 @@ Request: `{"email": "user@example.com", "password": "string"}`
 
 Responses:
 - **200** `Tokens`
-- **401** `{"detail": "invalid email or password"}`
-- **403** `{"detail": "user is not active"}`
+- **401** `{"detail": "invalid email or password", "code": "invalid_credentials"}`
+- **403** `{"detail": "user is not active", "code": "user_inactive"}`
 - **422**
 
 ### `POST /auth/refresh`
@@ -111,7 +149,7 @@ Request: `{"refresh_token": "string"}`
 
 Responses:
 - **200** `Tokens` (new pair; the old refresh token no longer works)
-- **401** `{"detail": "invalid refresh token"}`: the token is unknown, expired, already used,
+- **401** `{"detail": "invalid refresh token", "code": "invalid_refresh_token"}`: the token is unknown, expired, already used,
   or the user is deactivated. The user must log in again.
 - **422**
 
@@ -160,8 +198,8 @@ Example: `/seats/availability?starts_at=2026-11-10T09:00:00%2B02:00&ends_at=2026
   ```json
   [{"id": 1, "label": "A1", "status": "free"}, {"id": 2, "label": "A2", "status": "booked"}]
   ```
-- **422** `starts_at` is not earlier than `ends_at` (`detail`: `"starts_at must be earlier than ends_at"`)
-  or the parameters are missing
+- **422** `starts_at` is not earlier than `ends_at` (`code`: `invalid_time_range`)
+  or the parameters are missing (`code`: `validation_error`)
 
 A seat is "booked" if it has a `confirmed` booking overlapping the interval.
 Back-to-back bookings (9–10 and 10–11) do not overlap. Cancelled bookings do not block a seat.
@@ -201,8 +239,8 @@ Responses:
   - the user must not already have a confirmed booking that overlaps this time.
 
   Standard validation errors (wrong types, missing fields) also return 422, but with `detail` as a list
-  (see "Error format"). Check `typeof detail === "string"` to tell them apart.
-- **409** `{"detail": "..."}`: the seat does not exist or is inactive, or it is already booked for that time.
+  (`code: "validation_error"`). Use `code` to tell them apart.
+- **409** `code`: `seat_not_found` (the seat does not exist or is inactive) or `seat_already_booked`.
 - **401**, **403**
 
 Rules are checked first (422), seat availability afterwards (409).
@@ -218,7 +256,7 @@ Cancel your own booking. No request body. A cancellation email is sent to the us
 
 Responses:
 - **200** `Booking` (with `status: "cancelled"`)
-- **404** `{"detail": "..."}`: the booking does not exist, belongs to someone else
+- **404** `code`: `booking_not_found` or `booking_already_cancelled`: the booking does not exist, belongs to someone else
   (the response is intentionally identical), or is already cancelled. Cancelling a past booking is not blocked
 - **401**, **403**, **422** (`booking_id` is not a number)
 
@@ -247,8 +285,8 @@ Responses:
   ```
 - **401**, **403**
 - **422** empty text, text too long, or invalid `session_id`
-- **429** `{"detail": "the AI assistant is busy, try again in a minute"}`: model rate limit
-- **503** `{"detail": "the AI assistant is temporarily unavailable"}`
+- **429** `code: "ai_busy"`: model rate limit
+- **503** `code: "ai_unavailable"`
 
 Important:
 - The response is plain text only, with no structured data. After a booking made through the agent,
@@ -305,7 +343,7 @@ to SVG elements must be agreed with the backend separately.
 
 ## Not implemented yet
 
-- CORS on `main` (#25 in progress) and a unified error format with `code`
+- CORS on `main`: done in branch `feat/25-cors`, not merged or deployed yet
 - Database-level protection against double booking (#17): the check is done in code only, so two
   simultaneous requests for the same seat can theoretically both succeed
 - Seat filters by attributes and ranking (#21)
