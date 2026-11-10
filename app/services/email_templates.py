@@ -21,7 +21,7 @@ def booking_confirmed_html(booking: Booking, seat_label: str) -> tuple[str, str]
 <ul>
   <li><b>Loc:</b> {seat_label}</li>
   <li><b>Data:</b> {booking.starts_at:%d.%m.%Y}</li>
-  <li><b>Ora:</b> {booking.starts_at:%H:%M} — {booking.ends_at:%H:%M}</li>
+  <li><b>Ora:</b> {booking.starts_at:%H:%M} - {booking.ends_at:%H:%M}</li>
 </ul>
 <p>Acesta este un mesaj automat, vă rugăm să nu răspundeți.</p>
 """
@@ -37,7 +37,7 @@ def booking_cancelled_html(booking: Booking, seat_label: str) -> tuple[str, str]
 <ul>
   <li><b>Desk:</b> {seat_label}</li>
   <li><b>Date:</b> {booking.starts_at:%d.%m.%Y}</li>
-  <li><b>Time:</b> {booking.starts_at:%H:%M} — {booking.ends_at:%H:%M}</li>
+  <li><b>Time:</b> {booking.starts_at:%H:%M} - {booking.ends_at:%H:%M}</li>
 </ul>
 <p>This is an automated email, please do not reply.</p>
 <hr style="border: none; border-top: 1px solid #e0e0e0; margin: 20px 0;" />
@@ -46,7 +46,7 @@ def booking_cancelled_html(booking: Booking, seat_label: str) -> tuple[str, str]
 <ul>
   <li><b>Loc:</b> {seat_label}</li>
   <li><b>Data:</b> {booking.starts_at:%d.%m.%Y}</li>
-  <li><b>Ora:</b> {booking.starts_at:%H:%M} — {booking.ends_at:%H:%M}</li>
+  <li><b>Ora:</b> {booking.starts_at:%H:%M} - {booking.ends_at:%H:%M}</li>
 </ul>
 <p>Acesta este un mesaj automat, vă rugăm să nu răspundeți.</p>
 """

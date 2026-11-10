@@ -66,7 +66,7 @@ async def test_create_booking_sends_confirmation_email(
         json={
             "seat_id": seat.id,
             "starts_at": "2030-01-15T09:00:00Z",
-            "ends_at": "2030-01-15T18:00:00Z",
+            "ends_at": "2030-01-15T16:00:00Z",
         },
     )
 
@@ -95,7 +95,7 @@ async def test_cancel_booking_sends_cancellation_email(
         json={
             "seat_id": seat.id,
             "starts_at": "2030-02-15T09:00:00Z",
-            "ends_at": "2030-02-15T18:00:00Z",
+            "ends_at": "2030-02-15T16:00:00Z",
         },
     )
     booking_id = create_resp.json()["id"]
@@ -130,7 +130,7 @@ async def test_email_error_does_not_break_booking(
         json={
             "seat_id": seat.id,
             "starts_at": "2030-03-15T09:00:00Z",
-            "ends_at": "2030-03-15T18:00:00Z",
+            "ends_at": "2030-03-15T16:00:00Z",
         },
     )
 
