@@ -5,6 +5,7 @@ from app.services.preferences.dictionary import (
     AMBIGUOUS_PREFERENCES,
     PREFERENCE_DICTIONARY,
 )
+from app.services.preferences.negation import detect_negative_preferences
 
 SUPPORTED_LANGUAGES = {"ru", "ro", "en"}
 
@@ -38,6 +39,17 @@ def extract_preferences(text: str, language: str = "ru") -> dict:
             attributes["monitors_min"] = 2
         else:
             attributes[preference] = True
+
+    negative_preferences = detect_negative_preferences(
+        normalized_text,
+        language,
+    )
+
+    for preference, value in negative_preferences.items():
+        if value is None:
+            attributes.pop(preference, None)
+        else:
+            attributes[preference] = value
 
     for preference, translations in AMBIGUOUS_PREFERENCES.items():
         phrases = translations.get(language, [])
