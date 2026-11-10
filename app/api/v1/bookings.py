@@ -1,8 +1,15 @@
 import logging
+from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Body, HTTPException, Path, status
 
 from app.api.deps import CurrentUser
+from app.api.openapi import (
+    AUTH_RESPONSES,
+    error_response,
+    example_response,
+    rule_or_validation_error,
+)
 from app.core.db import SessionDep
 from app.models.database import Seat
 from app.schemas.schemas import BookingCreate, BookingResponse
@@ -28,9 +35,61 @@ async def _send_booking_mail(user_email: str, subject: str, html: str) -> None:
         logger.exception("Failed to send booking email to %s", user_email)
 
 
-@router.post("", response_model=BookingResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "",
+    response_model=BookingResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a booking",
+    description=(
+        "Books a seat for a time range and sends a confirmation email. The booking "
+        "must start and end on the same working day, inside office hours, and must "
+        "not start in the past. Send the time with a UTC offset."
+    ),
+    responses={
+        201: example_response(
+            "The booking was created",
+            {
+                "id": 42,
+                "user_id": 1,
+                "seat_id": 1,
+                "starts_at": "2026-11-12T09:00:00+02:00",
+                "ends_at": "2026-11-12T13:00:00+02:00",
+                "status": "confirmed",
+                "source": "manual",
+                "is_checked_in": False,
+                "created_at": "2026-11-10T08:15:30+02:00",
+            },
+        ),
+        409: error_response(
+            "The seat does not exist, is not available or is already booked "
+            "for this time",
+            "Seat A-01 is already booked for this time.",
+        ),
+        422: rule_or_validation_error(
+            "A booking rule is broken (office hours, duration, past time, "
+            "overlapping booking of the user) or the body is invalid",
+            "Office hours are from 09:00 to 19:00.",
+        ),
+        **AUTH_RESPONSES,
+    },
+)
 async def make_booking(
-    booking_in: BookingCreate,
+    booking_in: Annotated[
+        BookingCreate,
+        Body(
+            openapi_examples={
+                "manual": {
+                    "summary": "Morning booking from the map",
+                    "value": {
+                        "seat_id": 1,
+                        "starts_at": "2026-11-12T09:00:00+02:00",
+                        "ends_at": "2026-11-12T13:00:00+02:00",
+                        "source": "manual",
+                    },
+                }
+            }
+        ),
+    ],
     session: SessionDep,
     current_user: CurrentUser,
     background_tasks: BackgroundTasks,
@@ -61,14 +120,67 @@ async def make_booking(
     return booking
 
 
-@router.get("/me", response_model=list[BookingResponse])
+@router.get(
+    "/me",
+    response_model=list[BookingResponse],
+    summary="List my bookings",
+    description="Returns the bookings of the current user.",
+    responses={
+        200: example_response(
+            "Bookings of the current user",
+            [
+                {
+                    "id": 42,
+                    "user_id": 1,
+                    "seat_id": 1,
+                    "starts_at": "2026-11-12T09:00:00+02:00",
+                    "ends_at": "2026-11-12T13:00:00+02:00",
+                    "status": "confirmed",
+                    "source": "manual",
+                    "is_checked_in": False,
+                    "created_at": "2026-11-10T08:15:30+02:00",
+                }
+            ],
+        ),
+        **AUTH_RESPONSES,
+    },
+)
 async def get_my_bookings(session: SessionDep, current_user: CurrentUser):
     return await list_user_bookings(session=session, user_id=current_user.id)
 
 
-@router.patch("/{booking_id}/cancel", response_model=BookingResponse)
+@router.patch(
+    "/{booking_id}/cancel",
+    response_model=BookingResponse,
+    summary="Cancel my booking",
+    description=(
+        "Cancels a booking of the current user and sends a cancellation email."
+    ),
+    responses={
+        200: example_response(
+            "The booking was cancelled",
+            {
+                "id": 42,
+                "user_id": 1,
+                "seat_id": 1,
+                "starts_at": "2026-11-12T09:00:00+02:00",
+                "ends_at": "2026-11-12T13:00:00+02:00",
+                "status": "cancelled",
+                "source": "manual",
+                "is_checked_in": False,
+                "created_at": "2026-11-10T08:15:30+02:00",
+            },
+        ),
+        404: error_response(
+            "The booking does not exist, belongs to another user or is already "
+            "cancelled",
+            "Booking 42 was not found.",
+        ),
+        **AUTH_RESPONSES,
+    },
+)
 async def cancel_my_booking(
-    booking_id: int,
+    booking_id: Annotated[int, Path(description="Booking id", examples=[42])],
     session: SessionDep,
     current_user: CurrentUser,
     background_tasks: BackgroundTasks,
