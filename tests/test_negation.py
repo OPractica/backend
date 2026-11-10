@@ -117,3 +117,31 @@ def test_positive_request_without_negation():
 
     assert result["attributes"]["near_window"] is True
     assert result["attributes"]["quiet"] is True
+
+
+@pytest.mark.parametrize(
+    ("language", "text"),
+    [
+        ("ru", "Не хочу два монитора"),
+        ("ro", "Nu vreau două monitoare"),
+        ("en", "I don't want two monitors"),
+    ],
+)
+def test_rejected_two_monitors_not_required(language, text):
+    result = extract_preferences(text, language)
+
+    assert "monitors_min" not in result["attributes"]
+
+
+@pytest.mark.parametrize(
+    ("language", "text"),
+    [
+        ("ru", "Не хочу док-станцию"),
+        ("ro", "Nu vreau stație de andocare"),
+        ("en", "I don't want a docking station"),
+    ],
+)
+def test_negative_docking_station(language, text):
+    result = extract_preferences(text, language)
+
+    assert result["attributes"]["docking_station"] is False
