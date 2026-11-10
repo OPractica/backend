@@ -1,7 +1,8 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from sqlalchemy import text
 from sqlalchemy.exc import SQLAlchemyError
 
+from app.api.errors import APIError
 from app.api.openapi import error_response, example_response
 from app.core.db import SessionDep
 
@@ -26,12 +27,18 @@ async def liveness():
         200: example_response(
             "The service and the database are available", {"status": "ok"}
         ),
-        503: error_response("The database is unavailable", "database unavailable"),
+        503: error_response(
+            "The database is unavailable",
+            "database unavailable",
+            "database_unavailable",
+        ),
     },
 )
 async def health(session: SessionDep):
     try:
         await session.execute(text("SELECT 1"))
     except (SQLAlchemyError, OSError):
-        raise HTTPException(status_code=503, detail="database unavailable") from None
+        raise APIError(
+            status_code=503, detail="database unavailable", code="database_unavailable"
+        ) from None
     return {"status": "ok"}

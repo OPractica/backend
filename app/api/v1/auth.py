@@ -1,10 +1,11 @@
 from datetime import UTC, datetime
 from typing import Annotated
 
-from fastapi import APIRouter, Body, HTTPException, status
+from fastapi import APIRouter, Body, status
 from sqlalchemy.exc import IntegrityError
 
 from app.api.deps import CurrentUser
+from app.api.errors import APIError
 from app.api.openapi import AUTH_RESPONSES, error_response, example_response
 from app.core.db import SessionDep
 from app.core.security import create_access_token, verify_password
@@ -44,7 +45,9 @@ router = APIRouter(prefix="/auth", tags=["auth"])
             },
         ),
         409: error_response(
-            "The email is already registered", "email is already in use"
+            "The email is already registered",
+            "email is already in use",
+            "email_taken",
         ),
     },
 )
@@ -69,16 +72,20 @@ async def register(
     existing = await get_user_by_email(session, data.email)
 
     if existing:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="email is already in use"
+        raise APIError(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="email is already in use",
+            code="email_taken",
         )
 
     try:
         user = await create_user(session, data)
     except IntegrityError:
         await session.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT, detail="email is already in use"
+        raise APIError(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="email is already in use",
+            code="email_taken",
         )
     return user
 
@@ -100,8 +107,14 @@ async def register(
                 "token_type": "bearer",
             },
         ),
-        401: error_response("Wrong email or password", "invalid email or password"),
-        403: error_response("The user is deactivated", "user is not active"),
+        401: error_response(
+            "Wrong email or password",
+            "invalid email or password",
+            "invalid_credentials",
+        ),
+        403: error_response(
+            "The user is deactivated", "user is not active", "user_inactive"
+        ),
     },
 )
 async def login(
@@ -121,13 +134,17 @@ async def login(
     user = await get_user_by_email(session, data.email)
 
     if not user or not verify_password(data.password, user.password_hash):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid email or password"
+        raise APIError(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid email or password",
+            code="invalid_credentials",
         )
 
     if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN, detail="user is not active"
+        raise APIError(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="user is not active",
+            code="user_inactive",
         )
     access_token = create_access_token(user.id)
     refresh_token = await create_refresh_token(session, user.id)
@@ -178,6 +195,7 @@ async def me(user: CurrentUser) -> UserResponse:
         401: error_response(
             "The refresh token is unknown, expired, revoked or already used",
             "invalid refresh token",
+            "invalid_refresh_token",
         ),
     },
 )
@@ -197,23 +215,29 @@ async def refresh(
 ) -> TokenResponse:
     token = await find_refresh_token(session, data.refresh_token)
     if token is None or token.expires_at <= datetime.now(UTC):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid refresh token"
+        raise APIError(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid refresh token",
+            code="invalid_refresh_token",
         )
     if token.revoked_at is not None:
         # A rotated token came back: it may be stolen, so end the whole login
         # session. Commit before raising, otherwise the revoke is rolled back.
         await revoke_token_family(session, token.family_id)
         await session.commit()
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid refresh token"
+        raise APIError(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid refresh token",
+            code="invalid_refresh_token",
         )
     await revoke_refresh_token(session, token)
 
     user = await get_user_by_id(session, token.user_id)
     if user is None or not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED, detail="invalid refresh token"
+        raise APIError(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="invalid refresh token",
+            code="invalid_refresh_token",
         )
     access_token = create_access_token(user.id)
     refresh_token = await create_refresh_token(session, user.id, token.family_id)

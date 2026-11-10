@@ -1,11 +1,12 @@
 from typing import Annotated
 
-from fastapi import APIRouter, Body, HTTPException, status
+from fastapi import APIRouter, Body, status
 from langchain_core.exceptions import ModelError, ModelRateLimitError
 
 from app.ai.chat import run_chat
 from app.ai.llm import LLMNotConfiguredError
 from app.api.deps import CurrentUser
+from app.api.errors import APIError
 from app.api.openapi import (
     AUTH_RESPONSES,
     error_response,
@@ -36,10 +37,12 @@ router = APIRouter(prefix="/ai", tags=["ai"])
         429: error_response(
             "The AI provider rate limit is reached",
             "the AI assistant is busy, try again in a minute",
+            "ai_busy",
         ),
         503: error_response(
             "The AI assistant is not configured or the provider failed",
             "the AI assistant is temporarily unavailable",
+            "ai_unavailable",
         ),
         **AUTH_RESPONSES,
     },
@@ -68,13 +71,15 @@ async def chat(
     try:
         answer, session_id = await run_chat(current_user.id, body.text, body.session_id)
     except ModelRateLimitError:
-        raise HTTPException(
+        raise APIError(
             status.HTTP_429_TOO_MANY_REQUESTS,
             detail="the AI assistant is busy, try again in a minute",
+            code="ai_busy",
         ) from None
     except (ModelError, LLMNotConfiguredError):
-        raise HTTPException(
+        raise APIError(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="the AI assistant is temporarily unavailable",
+            code="ai_unavailable",
         ) from None
     return ChatResponse(answer=answer, session_id=session_id)
