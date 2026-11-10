@@ -8,7 +8,7 @@ from alembic import context
 
 # import application settings to load DATABASE_URL from .env
 from app.core.config import settings
-from app.models.database import base
+from app.models.voice import VoiceRecord
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
@@ -26,7 +26,7 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
-target_metadata = base.metadata
+target_metadata = VoiceRecord.metadata
 
 # other values from the config, defined by the needs of env.py,
 # can be acquired:
