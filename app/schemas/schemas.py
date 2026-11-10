@@ -4,6 +4,21 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
+class ErrorResponse(BaseModel):
+    detail: str
+
+
+class ValidationErrorItem(BaseModel):
+    type: str
+    loc: list[str | int]
+    msg: str
+    input: Any = None
+
+
+class ValidationErrorResponse(BaseModel):
+    detail: list[ValidationErrorItem]
+
+
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
