@@ -7,6 +7,8 @@
 
 import asyncio
 
+from sqlalchemy import text
+
 from app.core.db import SessionLocal, engine
 from app.models.database import Seat, User, base
 
@@ -94,6 +96,8 @@ async def main() -> None:
         )
 
     async with engine.begin() as conn:
+        # Нужно для ограничения от двойной брони (EXCLUDE USING gist) в таблице bookings
+        await conn.execute(text("CREATE EXTENSION IF NOT EXISTS btree_gist"))
         await conn.run_sync(base.metadata.drop_all)
         await conn.run_sync(base.metadata.create_all)
 
