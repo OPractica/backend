@@ -33,6 +33,8 @@ def test_database():
     server.dispose()
 
     engine = create_engine(sync_url)
+    with engine.begin() as conn:
+        conn.execute(text("CREATE EXTENSION IF NOT EXISTS btree_gist"))
     base.metadata.drop_all(engine)
     base.metadata.create_all(engine)
     engine.dispose()
