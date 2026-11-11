@@ -1,6 +1,7 @@
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     ForeignKey,
@@ -8,6 +9,7 @@ from sqlalchemy import (
     String,
     Uuid,
 )
+from sqlalchemy.dialects.postgresql import ExcludeConstraint
 from sqlalchemy.orm import declarative_base
 from sqlalchemy.sql import func
 
@@ -59,6 +61,20 @@ class Booking(base):
     is_checked_in = Column(
         Boolean, default=False, nullable=False
     )  # ?Подтвердил ли пользователь свое присутствие
+
+    __table_args__ = (
+        CheckConstraint(
+            "ends_at > starts_at",
+            name="ck_bookings_ends_after_starts",
+        ),
+        ExcludeConstraint(
+            (seat_id, "="),
+            (func.tstzrange(starts_at, ends_at, "[)"), "&&"),
+            name="excl_bookings_no_overlap",
+            using="gist",
+            where=(status == "confirmed"),
+        ),
+    )
 
 
 class RefreshToken(base):
