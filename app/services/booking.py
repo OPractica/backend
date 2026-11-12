@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import exists, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -72,6 +72,25 @@ def validate_booking_rules(starts_at: datetime, ends_at: datetime) -> None:
             f"Минимальная длительность брони — {settings.booking_min_minutes} минут.",
             "booking_too_short",
         )
+
+
+async def get_seat_by_label(session: AsyncSession, label: str) -> Seat:
+    """Найти активное место по названию (например 7-A01). Регистр и пробелы по краям не важны."""
+    result = await session.execute(
+        select(Seat).where(
+            func.lower(Seat.label) == label.strip().lower(), Seat.is_active.is_(True)
+        )
+    )
+    seats = list(result.scalars().all())
+    if not seats:
+        raise BookingError(
+            f"Место {label} не найдено или недоступно.", "seat_not_found"
+        )
+    if len(seats) > 1:
+        raise BookingError(
+            f"Название {label} подходит нескольким местам.", "seat_label_ambiguous"
+        )
+    return seats[0]
 
 
 async def find_free_seats(
