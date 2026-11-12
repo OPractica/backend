@@ -91,10 +91,10 @@ Other statuses without a specific code get a generic one (`bad_request`, `forbid
 
 ### CORS
 
-CORS is implemented in branch `feat/25-cors` and is **not on `main` or the deployed API yet**. The allowed
-origins come from the `CORS_ORIGINS` setting (comma-separated; default `http://localhost:5173`). Until it is merged and deployed, browser requests
-from another origin are blocked; use a dev-server proxy in the meantime. Tell the backend which
-frontend origins you need (production and local dev server, e.g. `http://localhost:5173`).
+CORS is enabled. The allowed origins come from the `CORS_ORIGINS` setting of the backend
+(comma-separated, default `http://localhost:5173`), and `CORS_ORIGIN_REGEX` can allow preview deploys.
+A browser request from any other origin is blocked, so the frontend origin (for example the Vercel domain)
+must be added to `CORS_ORIGINS` on the server. Tell the backend which origins you need.
 
 ---
 
@@ -343,12 +343,9 @@ to SVG elements must be agreed with the backend separately.
 
 ## Not implemented yet
 
-- CORS on `main`: done in branch `feat/25-cors`, not merged or deployed yet
-- Database-level protection against double booking (#17): the check is done in code only, so two
-  simultaneous requests for the same seat can theoretically both succeed
 - Seat filters by attributes and ranking (#21)
 - Check-in and booking update endpoints (a `BookingUpdate` schema exists, but no route)
-- Voice input and recording endpoints (#64, #66, #68 in progress)
+- Voice input endpoints: the transcription and voice record storage services exist, but there is no API route yet
 - Seat data and coordinates for the map (#9, #10)
 
 ## Typical flow
