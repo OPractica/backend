@@ -279,7 +279,6 @@ CASES: tuple[Case, ...] = (
         "invalid",
         (Step("Забронируй место 7-A01 завтра с 22 до 23"),),
         bookings=(),
-        known_gap="часы работы пока не проверяются в коде (задача #46)",
     ),
 )
 
@@ -301,4 +300,124 @@ ROMANIAN_WORDS: frozenset[str] = frozenset(
         "sunt",
         "doar",
     }
+)
+
+# Контрольный набор: другие формулировки, на которых инструкцию не подгоняли.
+# Запуск: uv run python -m scripts.eval_agent --holdout
+HOLDOUT: tuple[Case, ...] = (
+    Case(
+        "ru: «любое» (другая фраза)",
+        "holdout",
+        (
+            Step(
+                "Мне подойдёт любое свободное место сегодня с 14 до 15",
+                tools=(SEARCH, BOOK),
+            ),
+        ),
+        bookings=("confirmed",),
+        booking_day=0,
+        booking_hour=14,
+    ),
+    Case(
+        "en: any desk",
+        "holdout",
+        (Step("Just book me any desk tomorrow 9-10", tools=(SEARCH, BOOK), lang="en"),),
+        bookings=("confirmed",),
+        booking_day=1,
+        booking_hour=9,
+    ),
+    Case(
+        "ro: orice loc",
+        "holdout",
+        (
+            Step(
+                "Rezervă-mi orice loc mâine între 13 și 14",
+                tools=(SEARCH, BOOK),
+                lang="ro",
+            ),
+        ),
+        bookings=("confirmed",),
+        booking_day=1,
+        booking_hour=13,
+    ),
+    Case(
+        "ru: пожелания и день недели",
+        "holdout",
+        (
+            Step(
+                "Нужно рабочее место на пятницу с 10 до 12, желательно с док-станцией",
+                tools=(SEARCH,),
+                forbid=(BOOK,),
+                search_weekday=4,
+            ),
+        ),
+        bookings=(),
+    ),
+    Case(
+        "ru: смешанный (погода)",
+        "holdout",
+        (
+            Step(
+                "Найди мне место у окна на завтра с 15 до 16 и заодно расскажи про погоду",
+                tools=(SEARCH,),
+                forbid=(BOOK,),
+            ),
+        ),
+        bookings=(),
+    ),
+    Case(
+        "ru: бронь, список, отмена по номеру",
+        "holdout",
+        (
+            Step("Забронируй 7-A03 завтра с 12 до 13", tools=(BOOK,)),
+            Step("Покажи мои брони", tools=(LIST,)),
+            Step("Отмени бронь номер 1", tools=(CANCEL,)),
+        ),
+        bookings=("cancelled",),
+    ),
+    Case(
+        "ru: две брони на одно место и время",
+        "holdout",
+        (
+            Step("Забронируй 7-A01 завтра с 9 до 10", tools=(BOOK,)),
+            Step("Забронируй 7-A01 завтра с 9:30 до 10:30", tools=(BOOK,)),
+        ),
+        bookings=("confirmed",),
+    ),
+    Case(
+        "ru: перенос брони (сначала спросить)",
+        "holdout",
+        (
+            Step("Забронируй 7-A01 завтра с 9 до 10", tools=(BOOK,)),
+            Step("Перенеси мою бронь на 14-15", forbid=(CANCEL,)),
+        ),
+        bookings=("confirmed",),
+    ),
+    Case(
+        "ru: даты (через два дня)",
+        "holdout",
+        (Step("Что свободно через два дня с 9 до 10?", tools=(SEARCH,), search_day=2),),
+    ),
+    Case(
+        "en: capital (off-topic)",
+        "holdout",
+        (
+            Step(
+                "What is the capital of France?", no_tools=True, refusal=True, lang="en"
+            ),
+        ),
+        reset=False,
+    ),
+    Case(
+        "en: poem (off-topic)",
+        "holdout",
+        (Step("Write a poem about Mondays", no_tools=True, refusal=True, lang="en"),),
+        reset=False,
+    ),
+    Case(
+        "ro: cina (off-topic)",
+        "holdout",
+        (Step("Ce să gătesc la cină?", no_tools=True, refusal=True, lang="ro"),),
+        reset=False,
+    ),
 )

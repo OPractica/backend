@@ -127,7 +127,7 @@ async def test_agent_books_for_the_logged_in_user(
     await session.flush()
     model = ScriptedChatModel(
         responses=[
-            tool_call("book_seat", {"seat_id": seat.id, "start": START, "end": END}),
+            tool_call("book_seat", {"seat": seat.label, "start": START, "end": END}),
             AIMessage("Забронировано."),
         ]
     )

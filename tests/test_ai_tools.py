@@ -67,7 +67,7 @@ def test_tool_cards_have_expected_names_and_arguments():
 
     assert cards == {
         "search_free_seats": ["start", "end", "zone"],
-        "book_seat": ["seat_id", "start", "end"],
+        "book_seat": ["seat", "start", "end"],
         "cancel_my_booking": ["booking_id"],
         "list_my_bookings": [],
     }
@@ -79,8 +79,8 @@ async def test_search_lists_free_seats(tools: dict, session: AsyncSession):
 
     result = await tools["search_free_seats"].ainvoke({"start": START, "end": END})
 
-    assert "место=T-1 зона=window" in result
-    assert "место=T-2 зона=quiet" in result
+    assert "seat=T-1 zone=window" in result
+    assert "seat=T-2 zone=quiet" in result
 
 
 async def test_search_filters_by_zone(tools: dict, session: AsyncSession):
@@ -98,7 +98,7 @@ async def test_search_filters_by_zone(tools: dict, session: AsyncSession):
 async def test_search_says_when_no_seats(tools: dict):
     result = await tools["search_free_seats"].ainvoke({"start": START, "end": END})
 
-    assert result == "Свободных мест на это время нет."
+    assert result == "no free seats for this time"
 
 
 async def test_search_skips_booked_seat(tools: dict, session: AsyncSession, user: User):
@@ -140,8 +140,7 @@ async def test_search_times_are_office_local_not_utc(
 async def test_search_with_unreadable_time_returns_error_text(tools: dict):
     result = await tools["search_free_seats"].ainvoke({"start": "завтра", "end": END})
 
-    assert result.startswith("Ошибка:")
-    assert "формат" in result
+    assert result.startswith("error invalid_time_format")
 
 
 async def test_search_with_end_before_start_returns_error_text(
@@ -151,14 +150,14 @@ async def test_search_with_end_before_start_returns_error_text(
 
     result = await tools["search_free_seats"].ainvoke({"start": END, "end": START})
 
-    assert result.startswith("Ошибка:")
+    assert result.startswith("error invalid_time_range")
     assert "T-1" not in result
 
 
 async def test_list_my_bookings_when_empty(tools: dict):
     result = await tools["list_my_bookings"].ainvoke({})
 
-    assert result == "У пользователя нет активных броней."
+    assert result == "the user has no active bookings"
 
 
 async def test_list_my_bookings_shows_only_own_bookings(
@@ -183,9 +182,9 @@ async def test_list_my_bookings_shows_only_own_bookings(
 
     result = await tools["list_my_bookings"].ainvoke({})
 
-    assert f"бронь {mine.id}:" in result
+    assert f"booking {mine.id}: seat T-1" in result
     assert "2030-01-15 09:00 - 2030-01-15 10:00" in result
-    assert f"бронь {theirs.id}:" not in result
+    assert f"booking {theirs.id}:" not in result
 
 
 async def test_book_seat_creates_booking_for_current_user(
@@ -194,7 +193,7 @@ async def test_book_seat_creates_booking_for_current_user(
     seat = await add_seat(session, "T-1", "window")
 
     result = await tools["book_seat"].ainvoke(
-        {"seat_id": seat.id, "start": START, "end": END}
+        {"seat": seat.label, "start": START, "end": END}
     )
 
     booking = await session.scalar(select(Booking).where(Booking.seat_id == seat.id))
@@ -204,9 +203,9 @@ async def test_book_seat_creates_booking_for_current_user(
     assert booking.status == "confirmed"
     # 09:00 in the office is 07:00 UTC
     assert booking.starts_at == datetime(2030, 1, 15, 7, tzinfo=UTC)
-    assert result.startswith("Бронь создана")
-    assert f"номер брони {booking.id}" in result
-    assert "с 2030-01-15 09:00 до 2030-01-15 10:00" in result
+    assert result.startswith("booking created")
+    assert f"booking id {booking.id}" in result
+    assert "from 2030-01-15 09:00 to 2030-01-15 10:00" in result
 
 
 async def test_book_seat_rejects_overlapping_booking(
@@ -223,24 +222,22 @@ async def test_book_seat_rejects_overlapping_booking(
     )
 
     result = await tools["book_seat"].ainvoke(
-        {"seat_id": seat.id, "start": START, "end": END}
+        {"seat": seat.label, "start": START, "end": END}
     )
 
     bookings = (
         await session.scalars(select(Booking).where(Booking.seat_id == seat.id))
     ).all()
-    assert result.startswith("Ошибка:")
-    assert "занято" in result
+    assert result.startswith("error seat_already_booked")
     assert len(bookings) == 1
 
 
 async def test_book_seat_with_unknown_seat_returns_error_text(tools: dict):
     result = await tools["book_seat"].ainvoke(
-        {"seat_id": 999999, "start": START, "end": END}
+        {"seat": "NO-SUCH", "start": START, "end": END}
     )
 
-    assert result.startswith("Ошибка:")
-    assert "не найдено" in result
+    assert result.startswith("error seat_not_found")
 
 
 async def test_book_seat_with_unreadable_time_creates_nothing(
@@ -249,11 +246,11 @@ async def test_book_seat_with_unreadable_time_creates_nothing(
     seat = await add_seat(session, "T-1", "window")
 
     result = await tools["book_seat"].ainvoke(
-        {"seat_id": seat.id, "start": "завтра", "end": END}
+        {"seat": seat.label, "start": "завтра", "end": END}
     )
 
     bookings = (await session.scalars(select(Booking))).all()
-    assert result.startswith("Ошибка:")
+    assert result.startswith("error invalid_time_format")
     assert bookings == []
 
 
@@ -269,7 +266,7 @@ async def test_cancel_own_booking(tools: dict, session: AsyncSession, user: User
 
     result = await tools["cancel_my_booking"].ainvoke({"booking_id": booking.id})
 
-    assert result == f"Бронь {booking.id} отменена."
+    assert result == f"booking {booking.id} cancelled"
     assert booking.status == "cancelled"
 
 
@@ -286,15 +283,14 @@ async def test_cancel_foreign_booking_is_rejected(tools: dict, session: AsyncSes
 
     result = await tools["cancel_my_booking"].ainvoke({"booking_id": booking.id})
 
-    assert result.startswith("Ошибка:")
+    assert result.startswith("error booking_not_found")
     assert booking.status == "confirmed"
 
 
 async def test_cancel_unknown_booking_returns_error_text(tools: dict):
     result = await tools["cancel_my_booking"].ainvoke({"booking_id": 999999})
 
-    assert result.startswith("Ошибка:")
-    assert "не найдена" in result
+    assert result.startswith("error booking_not_found")
 
 
 async def test_booked_seat_becomes_free_again_after_cancel(
@@ -303,12 +299,12 @@ async def test_booked_seat_becomes_free_again_after_cancel(
     seat = await add_seat(session, "T-1", "window")
     window = {"start": START, "end": END}
 
-    booked = await tools["book_seat"].ainvoke({"seat_id": seat.id, **window})
+    booked = await tools["book_seat"].ainvoke({"seat": seat.label, **window})
     during = await tools["search_free_seats"].ainvoke(window)
     booking = await session.scalar(select(Booking).where(Booking.seat_id == seat.id))
     await tools["cancel_my_booking"].ainvoke({"booking_id": booking.id})
     after = await tools["search_free_seats"].ainvoke(window)
 
-    assert booked.startswith("Бронь создана")
-    assert during == "Свободных мест на это время нет."
+    assert booked.startswith("booking created")
+    assert during == "no free seats for this time"
     assert "T-1" in after

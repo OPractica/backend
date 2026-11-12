@@ -2,7 +2,7 @@ from datetime import date, datetime
 from zoneinfo import ZoneInfo
 
 from scripts.eval_agent import eval_now, lang_of, next_weekday, problems_for
-from scripts.eval_cases import CASES, Step
+from scripts.eval_cases import CASES, HOLDOUT, Step
 
 TODAY = date(2030, 1, 15)  # вторник
 
@@ -11,6 +11,8 @@ def test_lang_of_detects_russian_romanian_and_english():
     assert lang_of("Бронь создана: место 7-A01") == "ru"
     assert lang_of("Locul 7-A03 a fost rezervat pentru mâine") == "ro"
     assert lang_of("Seat 7-A01 is booked for tomorrow") == "en"
+    # Technical tokens in an otherwise Russian answer do not change the language
+    assert lang_of("Вот места: 7-A03 — зона window, quiet=True, monitors=2") == "ru"
 
 
 def test_next_weekday_is_strictly_after_today():
@@ -49,10 +51,10 @@ def test_problems_for_checks_the_search_date():
 
 
 def test_every_case_has_a_unique_name_and_checks_something():
-    names = [case.name for case in CASES]
+    names = [case.name for case in (*CASES, *HOLDOUT)]
 
     assert len(names) == len(set(names))
-    for case in CASES:
+    for case in (*CASES, *HOLDOUT):
         assert case.steps
         has_check = case.bookings is not None or any(
             step.tools or step.forbid or step.no_tools or step.refusal or step.lang
