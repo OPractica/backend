@@ -40,5 +40,8 @@ async def test_health_without_database_returns_503(client: AsyncClient):
     response = await client.get("/api/v1/health")
 
     assert response.status_code == 503
-    assert response.json() == {"detail": "database unavailable"}
+    assert response.json() == {
+        "detail": "database unavailable",
+        "code": "database_unavailable",
+    }
     await engine.dispose()

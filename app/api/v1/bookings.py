@@ -1,9 +1,10 @@
 import logging
 from typing import Annotated
 
-from fastapi import APIRouter, BackgroundTasks, Body, HTTPException, Path, status
+from fastapi import APIRouter, BackgroundTasks, Body, Path, status
 
 from app.api.deps import CurrentUser
+from app.api.errors import APIError
 from app.api.openapi import (
     AUTH_RESPONSES,
     error_response,
@@ -64,11 +65,13 @@ async def _send_booking_mail(user_email: str, subject: str, html: str) -> None:
             "The seat does not exist, is not available or is already booked "
             "for this time",
             "Seat A-01 is already booked for this time.",
+            "seat_already_booked",
         ),
         422: rule_or_validation_error(
             "A booking rule is broken (office hours, duration, past time, "
             "overlapping booking of the user) or the body is invalid",
             "Office hours are from 09:00 to 19:00.",
+            "outside_office_hours",
         ),
         **AUTH_RESPONSES,
     },
@@ -105,11 +108,13 @@ async def make_booking(
         )
         await session.commit()
     except BookingRuleError as err:
-        raise HTTPException(
-            status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(err)
+        raise APIError(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(err), code=err.code
         ) from None
     except BookingError as err:
-        raise HTTPException(status.HTTP_409_CONFLICT, detail=str(err)) from None
+        raise APIError(
+            status.HTTP_409_CONFLICT, detail=str(err), code=err.code
+        ) from None
 
     seat = await session.get(Seat, booking.seat_id)
     seat_label = seat.label if seat else f"#{booking.seat_id}"
@@ -175,6 +180,7 @@ async def get_my_bookings(session: SessionDep, current_user: CurrentUser):
             "The booking does not exist, belongs to another user or is already "
             "cancelled",
             "Booking 42 was not found.",
+            "booking_not_found",
         ),
         **AUTH_RESPONSES,
     },
@@ -191,7 +197,9 @@ async def cancel_my_booking(
         )
         await session.commit()
     except BookingError as err:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, detail=str(err)) from None
+        raise APIError(
+            status.HTTP_404_NOT_FOUND, detail=str(err), code=err.code
+        ) from None
 
     seat = await session.get(Seat, booking.seat_id)
     seat_label = seat.label if seat else f"#{booking.seat_id}"

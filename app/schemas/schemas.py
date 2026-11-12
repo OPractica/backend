@@ -6,6 +6,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 class ErrorResponse(BaseModel):
     detail: str
+    code: str
 
 
 class ValidationErrorItem(BaseModel):
@@ -17,6 +18,7 @@ class ValidationErrorItem(BaseModel):
 
 class ValidationErrorResponse(BaseModel):
     detail: list[ValidationErrorItem]
+    code: str
 
 
 class UserCreate(BaseModel):

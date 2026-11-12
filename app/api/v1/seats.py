@@ -2,8 +2,9 @@ from datetime import datetime
 from typing import Annotated
 from zoneinfo import ZoneInfo
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 
+from app.api.errors import APIError
 from app.api.openapi import example_response, rule_or_validation_error
 from app.core.config import settings
 from app.core.db import SessionDep
@@ -73,6 +74,7 @@ def _with_office_tz(moment: datetime) -> datetime:
         422: rule_or_validation_error(
             "`starts_at` is not earlier than `ends_at`, or a parameter is invalid",
             "starts_at must be earlier than ends_at",
+            "invalid_time_range",
         ),
     },
 )
@@ -96,8 +98,10 @@ async def read_availability(
     starts_at = _with_office_tz(starts_at)
     ends_at = _with_office_tz(ends_at)
     if starts_at >= ends_at:
-        raise HTTPException(
-            status_code=422, detail="starts_at must be earlier than ends_at"
+        raise APIError(
+            status_code=422,
+            detail="starts_at must be earlier than ends_at",
+            code="invalid_time_range",
         )
 
     rows = await get_seats_availability(session, starts_at, ends_at)
