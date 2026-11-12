@@ -1,10 +1,10 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Body, status
-from langchain_core.exceptions import ModelError, ModelRateLimitError
+from langchain_core.exceptions import ModelRateLimitError
 
 from app.ai.chat import run_chat
-from app.ai.llm import LLMNotConfiguredError
+from app.ai.llm import MODEL_ERRORS, LLMNotConfiguredError
 from app.api.deps import CurrentUser
 from app.api.errors import APIError
 from app.api.openapi import (
@@ -76,7 +76,7 @@ async def chat(
             detail="the AI assistant is busy, try again in a minute",
             code="ai_busy",
         ) from None
-    except (ModelError, LLMNotConfiguredError):
+    except (*MODEL_ERRORS, LLMNotConfiguredError):
         raise APIError(
             status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="the AI assistant is temporarily unavailable",

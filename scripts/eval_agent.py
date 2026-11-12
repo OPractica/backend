@@ -16,11 +16,12 @@ import time
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta
 
-from langchain_core.exceptions import ModelError, ModelRateLimitError
+from langchain_core.exceptions import ModelRateLimitError
 from langchain_core.messages import BaseMessage
 from sqlalchemy import select
 
 from app.ai.agent import build_agent
+from app.ai.llm import MODEL_ERRORS
 from app.ai.tools import OFFICE_TZ
 from app.core.db import SessionLocal, engine
 from app.models.database import Booking
@@ -57,6 +58,18 @@ class CaseResult:
     @property
     def ok(self) -> bool:
         return not self.problems and all(not step.problems for step in self.steps)
+
+
+def eval_now(real_now: datetime | None = None) -> datetime:
+    """Фиксированное «сейчас» для оценки: ближайшая среда, 10:00, в будущем.
+
+    Тогда «завтра» это всегда четверг, и результат не зависит от дня запуска
+    (в выходные агент справедливо отвечает, что офис закрыт).
+    """
+    real = real_now or datetime.now(OFFICE_TZ)
+    days = (2 - real.weekday()) % 7 or 7
+    target = real + timedelta(days=days)
+    return target.replace(hour=10, minute=0, second=0, microsecond=0)
 
 
 def lang_of(text: str) -> str:
@@ -156,7 +169,7 @@ async def run_step(
                 result.problems.append("лимит запросов модели")
                 return messages[:-1], result
             await asyncio.sleep(35)
-        except ModelError as error:
+        except MODEL_ERRORS as error:
             result.problems.append(f"ошибка модели: {type(error).__name__}")
             return messages[:-1], result
     result.seconds = time.perf_counter() - started
@@ -173,11 +186,12 @@ async def run_step(
 
 
 async def run_case(case: Case, delay: float) -> CaseResult:
-    today = datetime.now(OFFICE_TZ).date()
+    now = eval_now()
+    today = now.date()
     outcome = CaseResult(case.name, case.category, case.known_gap)
     if case.reset:
         await reset_db()
-    agent = build_agent(USER_ID)
+    agent = build_agent(USER_ID, now=now)
     messages: list = []
     for step in case.steps:
         messages, step_result = await run_step(agent, messages, step, today)

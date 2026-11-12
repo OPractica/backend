@@ -21,6 +21,7 @@ dependencies = [
     "msal>=1.39.0",
     "httpx>=0.28.1",
     "groq>=1.7.0",
+    "langchain-ollama>=1.1.0",
 ]
 
 [dependency-groups]

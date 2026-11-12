@@ -26,3 +26,19 @@ def test_get_llm_fails_clearly_without_api_key(monkeypatch):
 
     with pytest.raises(RuntimeError, match="GOOGLE_API_KEY"):
         get_llm()
+
+
+def test_get_llm_builds_a_local_ollama_model(monkeypatch):
+    monkeypatch.setattr(settings, "llm_provider", "ollama")
+    monkeypatch.setattr(settings, "llm_model", "local-test-model")
+    monkeypatch.setattr(settings, "ollama_base_url", "http://192.168.0.10:11434")
+    monkeypatch.setattr(settings, "google_api_key", "")
+
+    llm = get_llm()
+
+    assert type(llm).__name__ == "ChatOllama"
+    assert llm.model == "local-test-model"
+    assert llm.base_url == "http://192.168.0.10:11434"
+    # The local server needs no key, the context is set explicitly, thinking is off
+    assert llm.num_ctx == 8192
+    assert llm.reasoning is False

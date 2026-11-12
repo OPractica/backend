@@ -1,4 +1,4 @@
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -15,7 +15,9 @@ class Settings(BaseSettings):
     database_url: str
     groq_api_key: str
     google_api_key: str = ""
+    llm_provider: Literal["gemini", "ollama"] = "gemini"
     llm_model: str = "gemini-3.5-flash-lite"
+    ollama_base_url: str = "http://localhost:11434"
     office_timezone: str = "Europe/Chisinau"
     jwt_secret: str
     access_token_minutes: int = 15
