@@ -8,9 +8,8 @@
 import asyncio
 import sys
 
-from langchain_core.exceptions import ModelError
-
 from app.ai.agent import build_agent
+from app.ai.llm import MODEL_ERRORS
 from app.core.db import engine
 
 USER_ID = 1  # тестовый пользователь из scripts.dev_reset_db
@@ -37,7 +36,7 @@ async def main(trace: bool) -> None:
         messages.append({"role": "user", "content": text})
         try:
             result = await agent.ainvoke({"messages": messages})
-        except ModelError as error:
+        except MODEL_ERRORS as error:
             # Любая ошибка модели (лимит, сеть, ключ) независимо от провайдера
             messages.pop()
             print(f"Ошибка при обращении к модели: {type(error).__name__}\n")

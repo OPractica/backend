@@ -16,11 +16,12 @@ import time
 from dataclasses import asdict, dataclass, field
 from datetime import date, datetime, timedelta
 
-from langchain_core.exceptions import ModelError, ModelRateLimitError
+from langchain_core.exceptions import ModelRateLimitError
 from langchain_core.messages import BaseMessage
 from sqlalchemy import select
 
 from app.ai.agent import build_agent
+from app.ai.llm import MODEL_ERRORS
 from app.ai.tools import OFFICE_TZ
 from app.core.db import SessionLocal, engine
 from app.models.database import Booking
@@ -156,7 +157,7 @@ async def run_step(
                 result.problems.append("лимит запросов модели")
                 return messages[:-1], result
             await asyncio.sleep(35)
-        except ModelError as error:
+        except MODEL_ERRORS as error:
             result.problems.append(f"ошибка модели: {type(error).__name__}")
             return messages[:-1], result
     result.seconds = time.perf_counter() - started
