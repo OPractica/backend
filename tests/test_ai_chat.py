@@ -2,6 +2,8 @@ from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from uuid import uuid4
 
+import httpx
+import ollama
 import pytest
 from httpx import AsyncClient
 from langchain_core.exceptions import ModelError, ModelRateLimitError
@@ -200,3 +202,23 @@ async def test_chat_rejects_invalid_input(client: AsyncClient, body: dict):
     response = await client.post(CHAT_URL, json=body, headers=headers)
 
     assert response.status_code == 422
+
+
+@pytest.mark.parametrize(
+    "error",
+    [
+        httpx.ConnectError("connection refused"),
+        httpx.ReadTimeout("timed out"),
+        ollama.ResponseError("model not found"),
+    ],
+)
+async def test_chat_returns_503_when_the_local_model_server_fails(
+    client: AsyncClient, monkeypatch, error: Exception
+):
+    model = ScriptedChatModel(responses=[], errors=[error])
+    use_fake_model(monkeypatch, model)
+    headers, _ = await register_and_login(client)
+
+    response = await client.post(CHAT_URL, json={"text": "Привет"}, headers=headers)
+
+    assert response.status_code == 503
