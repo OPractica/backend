@@ -1,6 +1,7 @@
-from datetime import date
+from datetime import date, datetime
+from zoneinfo import ZoneInfo
 
-from scripts.eval_agent import lang_of, next_weekday, problems_for
+from scripts.eval_agent import eval_now, lang_of, next_weekday, problems_for
 from scripts.eval_cases import CASES, Step
 
 TODAY = date(2030, 1, 15)  # вторник
@@ -58,3 +59,14 @@ def test_every_case_has_a_unique_name_and_checks_something():
             for step in case.steps
         )
         assert has_check, case.name
+
+
+def test_eval_now_is_always_a_future_wednesday_morning():
+    tz = ZoneInfo("Europe/Chisinau")
+    friday = datetime(2030, 1, 18, 15, 30, tzinfo=tz)
+    tuesday = datetime(2030, 1, 15, 9, 0, tzinfo=tz)
+    wednesday = datetime(2030, 1, 16, 12, 0, tzinfo=tz)
+
+    assert eval_now(friday) == datetime(2030, 1, 23, 10, 0, tzinfo=tz)
+    assert eval_now(tuesday) == datetime(2030, 1, 16, 10, 0, tzinfo=tz)
+    assert eval_now(wednesday) == datetime(2030, 1, 23, 10, 0, tzinfo=tz)

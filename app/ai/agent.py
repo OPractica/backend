@@ -83,15 +83,18 @@ def build_system_prompt(now: datetime | None = None) -> str:
     )
 
 
-def build_agent(user_id: int, llm: BaseChatModel | None = None):
+def build_agent(
+    user_id: int, llm: BaseChatModel | None = None, now: datetime | None = None
+):
     """Собрать агента для пользователя.
 
     Время в инструкции фиксируется при сборке, поэтому для долгоживущего процесса
     агента нужно собирать заново на каждый запрос или сессию.
-    llm можно передать в тестах, по умолчанию берётся модель из настроек.
+    llm и now можно передать в тестах и в оценке: модель по умолчанию из настроек,
+    время по умолчанию текущее.
     """
     return create_agent(
         llm or get_llm(),
         tools=make_tools(user_id),
-        system_prompt=build_system_prompt(),
+        system_prompt=build_system_prompt(now),
     )

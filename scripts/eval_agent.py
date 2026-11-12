@@ -60,6 +60,18 @@ class CaseResult:
         return not self.problems and all(not step.problems for step in self.steps)
 
 
+def eval_now(real_now: datetime | None = None) -> datetime:
+    """Фиксированное «сейчас» для оценки: ближайшая среда, 10:00, в будущем.
+
+    Тогда «завтра» это всегда четверг, и результат не зависит от дня запуска
+    (в выходные агент справедливо отвечает, что офис закрыт).
+    """
+    real = real_now or datetime.now(OFFICE_TZ)
+    days = (2 - real.weekday()) % 7 or 7
+    target = real + timedelta(days=days)
+    return target.replace(hour=10, minute=0, second=0, microsecond=0)
+
+
 def lang_of(text: str) -> str:
     """Грубо определить язык ответа: ru (кириллица), ro (румынские слова и буквы), иначе en."""
     letters = [ch for ch in text if ch.isalpha()]
@@ -174,11 +186,12 @@ async def run_step(
 
 
 async def run_case(case: Case, delay: float) -> CaseResult:
-    today = datetime.now(OFFICE_TZ).date()
+    now = eval_now()
+    today = now.date()
     outcome = CaseResult(case.name, case.category, case.known_gap)
     if case.reset:
         await reset_db()
-    agent = build_agent(USER_ID)
+    agent = build_agent(USER_ID, now=now)
     messages: list = []
     for step in case.steps:
         messages, step_result = await run_step(agent, messages, step, today)
