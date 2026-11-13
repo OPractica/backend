@@ -25,9 +25,19 @@ from app.ai.llm import MODEL_ERRORS
 from app.ai.tools import OFFICE_TZ
 from app.core.db import SessionLocal, engine
 from app.models.database import Booking
-from scripts.eval_cases import CASES, ROMANIAN_WORDS, Case, Step
+from scripts.eval_cases import CASES, HOLDOUT, ROMANIAN_WORDS, Case, Step
 
 USER_ID = 1
+TECHNICAL_WORDS = {
+    "window",
+    "quiet",
+    "open",
+    "cozy",
+    "monitors",
+    "dock",
+    "true",
+    "false",
+}
 REFUSAL_MARKERS = (
     "только с бронированием",
     "only help with booking",
@@ -74,7 +84,12 @@ def eval_now(real_now: datetime | None = None) -> datetime:
 
 def lang_of(text: str) -> str:
     """Грубо определить язык ответа: ru (кириллица), ro (румынские слова и буквы), иначе en."""
-    letters = [ch for ch in text if ch.isalpha()]
+    # Технические токены (7-A03, quiet=True, числа) и названия зон не показывают язык ответа
+    words = [
+        w for w in text.split() if not any(ch.isdigit() or ch in "=*_" for ch in w)
+    ]
+    words = [w for w in words if w.strip(".,:;!?()-—").lower() not in TECHNICAL_WORDS]
+    letters = [ch for ch in " ".join(words) if ch.isalpha()]
     cyrillic = sum("а" <= ch.lower() <= "я" or ch.lower() == "ё" for ch in letters)
     if letters and cyrillic / len(letters) > 0.5:
         return "ru"
@@ -248,13 +263,16 @@ def save_json(path: str, results: list[CaseResult]) -> None:
         json.dump([asdict(r) for r in results], file, ensure_ascii=False, indent=2)
 
 
-async def main(only: str | None, delay: float, json_path: str | None) -> None:
+async def main(
+    only: str | None, delay: float, json_path: str | None, holdout: bool
+) -> None:
     if not (engine.url.database or "").endswith("_eval"):
         sys.exit(
             "Отказ: оценка пересоздаёт базу. Используйте базу с именем на _eval "
             "(см. описание файла)."
         )
-    cases = [c for c in CASES if not only or only in c.name or only == c.category]
+    pool = HOLDOUT if holdout else CASES
+    cases = [c for c in pool if not only or only in c.name or only == c.category]
     if not cases:
         sys.exit(f"Нет сценариев по фильтру {only!r}")
     results: list[CaseResult] = []
@@ -284,5 +302,8 @@ if __name__ == "__main__":
         "--delay", type=float, default=6.0, help="пауза между репликами, секунды"
     )
     parser.add_argument("--json", dest="json_path", help="сохранить отчёт в файл")
+    parser.add_argument(
+        "--holdout", action="store_true", help="контрольный набор (новые фразы)"
+    )
     args = parser.parse_args()
-    asyncio.run(main(args.only, args.delay, args.json_path))
+    asyncio.run(main(args.only, args.delay, args.json_path, args.holdout))

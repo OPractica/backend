@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai import tools as ai_tools
-from app.ai.agent import build_agent, build_system_prompt
+from app.ai.agent import build_agent, build_calendar, build_system_prompt
 from app.models.database import Booking, Seat, User
 from tests.fakes import ScriptedChatModel, tool_call
 
@@ -83,7 +83,7 @@ async def test_agent_calls_search_tool_and_uses_its_result(user: User, seat: Sea
 
     tool_messages = [m for m in result["messages"] if isinstance(m, ToolMessage)]
     assert len(tool_messages) == 1
-    assert "место=T-1" in tool_messages[0].content
+    assert "seat=T-1" in tool_messages[0].content
     # On the second step the model received the tool result
     assert any(isinstance(m, ToolMessage) for m in model.seen[1])
     assert result["messages"][-1].content == "Есть место T-1."
@@ -94,7 +94,7 @@ async def test_agent_books_a_seat_for_the_current_user(
 ):
     model = ScriptedChatModel(
         responses=[
-            tool_call("book_seat", {"seat_id": seat.id, "start": START, "end": END}),
+            tool_call("book_seat", {"seat": seat.label, "start": START, "end": END}),
             AIMessage(content="Забронировано."),
         ]
     )
@@ -112,7 +112,7 @@ async def test_agent_books_a_seat_for_the_current_user(
 async def test_agent_passes_tool_errors_back_to_the_model(user: User):
     model = ScriptedChatModel(
         responses=[
-            tool_call("book_seat", {"seat_id": 999999, "start": START, "end": END}),
+            tool_call("book_seat", {"seat": "NO-SUCH", "start": START, "end": END}),
             AIMessage(content="Такого места нет."),
         ]
     )
@@ -121,5 +121,27 @@ async def test_agent_passes_tool_errors_back_to_the_model(user: User):
     result = await agent.ainvoke(ask("Забронируй место 999999"))
 
     tool_message = next(m for m in result["messages"] if isinstance(m, ToolMessage))
-    assert tool_message.content.startswith("Ошибка:")
+    assert tool_message.content.startswith("error ")
     assert result["messages"][-1].content == "Такого места нет."
+
+
+async def test_calendar_gives_ready_dates_for_relative_words():
+    tue = datetime(2030, 1, 15, 9, 30, tzinfo=ZoneInfo("Europe/Chisinau"))
+
+    calendar = build_calendar(tue)
+
+    assert "сегодня / astăzi / today: 2030-01-15, вторник" in calendar
+    assert "завтра / mâine / tomorrow: 2030-01-16, среда" in calendar
+    assert (
+        "послезавтра / poimâine / the day after tomorrow: 2030-01-17, четверг"
+        in calendar
+    )
+    # the nearest weekday dates come after today
+    assert "пятница 2030-01-18" in calendar
+    assert "вторник 2030-01-22" in calendar
+
+
+async def test_system_prompt_includes_the_calendar():
+    now = datetime(2030, 1, 15, 9, 30, tzinfo=ZoneInfo("Europe/Chisinau"))
+
+    assert build_calendar(now) in build_system_prompt(now)
