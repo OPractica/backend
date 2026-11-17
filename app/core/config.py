@@ -41,6 +41,8 @@ class Settings(BaseSettings):
     office_close_hour: int = 19
     booking_min_minutes: int = 15
 
+    checkin_minutes: int = 10
+
     @field_validator("cors_origins", mode="before")
     @classmethod
     def split_cors_origins(cls, value: object) -> object:

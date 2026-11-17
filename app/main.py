@@ -1,3 +1,7 @@
+import asyncio
+import logging
+from contextlib import asynccontextmanager, suppress
+
 from fastapi import FastAPI
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,8 +14,35 @@ from app.api.v1.bookings import router as bookings_router
 from app.api.v1.health import router as health_router
 from app.api.v1.seats import router as seats_router
 from app.core.config import settings
+from app.core.db import SessionLocal
+from app.services.booking import auto_cancel_checkin
 
-app = FastAPI()
+logger = logging.getLogger(__name__)
+
+
+async def periodic_checkin():
+    while True:
+        try:
+            async with SessionLocal() as session:
+                await auto_cancel_checkin(session)
+                await session.commit()
+        except Exception:
+            logger.exception("Failed to auto-cancel unconfirmed bookings")
+        await asyncio.sleep(60)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # При старте сервера запускаем фоново
+    cancel_task = asyncio.create_task(periodic_checkin())
+    yield
+    # При выключении сервера останавливаем его
+    cancel_task.cancel()
+    with suppress(asyncio.CancelledError):
+        await cancel_task
+
+
+app = FastAPI(lifespan=lifespan)
 app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 app.add_exception_handler(RequestValidationError, validation_exception_handler)
 app.add_middleware(

@@ -18,6 +18,7 @@ from app.services.booking import (
     BookingError,
     BookingRuleError,
     cancel_booking,
+    check_in_booking,
     create_booking,
     list_user_bookings,
 )
@@ -208,3 +209,32 @@ async def cancel_my_booking(
     background_tasks.add_task(_send_booking_mail, current_user.email, subject, html)
 
     return booking
+
+
+@router.post(
+    "/{booking_id}/check-in",
+    response_model=BookingResponse,
+    summary="Check in to my booking",
+)
+async def check_in_my_booking(
+    booking_id: Annotated[int, Path(description="Booking id", examples=[42])],
+    session: SessionDep,
+    current_user: CurrentUser,
+):
+    try:
+        booking = await check_in_booking(
+            session=session, user_id=current_user.id, booking_id=booking_id
+        )
+        await session.commit()
+        return booking
+    except BookingRuleError as err:
+        raise APIError(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(err), code=err.code
+        ) from None
+    except BookingError as err:
+        status_code = (
+            status.HTTP_404_NOT_FOUND
+            if "not found" in str(err)
+            else status.HTTP_400_BAD_REQUEST
+        )
+        raise APIError(status_code, detail=str(err), code=err.code) from None
