@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import exists, func, select
+from sqlalchemy import delete, exists, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -284,3 +284,24 @@ async def auto_cancel_checkin(session: AsyncSession) -> list[Booking]:
     if expired:
         await session.flush()
     return expired
+
+
+async def cleanup_cancelled_bookings(
+    session: AsyncSession,
+    retention_days: int | None = None,
+) -> int:
+
+    if retention_days is not None:
+        days = retention_days
+    else:
+        days = settings.booking_retention_days
+
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+
+    stmt = delete(Booking).where(
+        Booking.status == "cancelled",
+        Booking.created_at <= cutoff,
+    )
+    result = await session.execute(stmt)
+    await session.flush()
+    return result.rowcount

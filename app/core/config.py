@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     booking_min_minutes: int = 15
 
     checkin_minutes: int = 10
+    booking_retention_days: int = 30
 
     @field_validator("cors_origins", mode="before")
     @classmethod
