@@ -223,3 +223,64 @@ async def list_user_bookings(
     stmt = stmt.order_by(Booking.starts_at)
     result = await session.execute(stmt)
     return list(result.scalars().all())
+
+
+async def check_in_booking(
+    session: AsyncSession,
+    user_id: int,
+    booking_id: int,
+) -> Booking:
+    booking = await session.get(Booking, booking_id)
+
+    if booking is None or booking.user_id != user_id:
+        raise BookingError(f"Booking {booking_id} was not found.")
+
+    if booking.status != "confirmed":
+        raise BookingError("Only confirmed bookings can be checked in.")
+
+    if booking.is_checked_in:
+        raise BookingError("Presence is already confirmed.")
+
+    office_tz = ZoneInfo(settings.office_timezone)
+    now = datetime.now(office_tz)
+    start = booking.starts_at.astimezone(office_tz)
+
+    # Available 5 minutes before start
+    early_buffer = timedelta(minutes=5)
+    if now < (start - early_buffer):
+        raise BookingRuleError("Check-in is not available yet.")
+
+    # Auto-cancel if 10 minutes past start
+    deadline = start + timedelta(minutes=settings.checkin_minutes)
+    if now > deadline:
+        booking.status = "cancelled"
+        await session.flush()
+        raise BookingError(
+            f"Check-in window expired ({settings.checkin_minutes} minutes). Booking was cancelled."
+        )
+
+    booking.is_checked_in = True
+    await session.flush()
+    return booking
+
+
+async def auto_cancel_checkin(session: AsyncSession) -> list[Booking]:
+    office_tz = ZoneInfo(settings.office_timezone)
+    now = datetime.now(office_tz)
+    cutoff = now - timedelta(minutes=settings.checkin_minutes)
+
+    stmt = select(Booking).where(
+        Booking.status == "confirmed",
+        Booking.is_checked_in.is_(False),
+        Booking.starts_at <= cutoff,
+    )
+
+    result = await session.execute(stmt)
+    expired = list(result.scalars().all())
+
+    for b in expired:
+        b.status = "cancelled"
+
+    if expired:
+        await session.flush()
+    return expired
