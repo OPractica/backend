@@ -135,3 +135,132 @@ def test_groq_api_failure(tmp_path, fake_groq):
 
     with pytest.raises(RuntimeError, match="Groq service unavailable"):
         transcribe.transcribe_audio(audio, "en")
+
+
+@pytest.mark.parametrize(
+    ("detected_language", "expected_language"),
+    [
+        ("Russian", "ru"),
+        ("Romanian", "ro"),
+        ("English", "en"),
+        ("ro-RO", "ro"),
+        ("EN_us", "en"),
+    ],
+)
+def test_auto_language_detection(
+    tmp_path, fake_groq, detected_language, expected_language
+):
+    client, _ = fake_groq
+
+    audio = tmp_path / "sample.wav"
+    audio.write_bytes(b"fake audio content")
+
+    client.audio.transcriptions.create.return_value = SimpleNamespace(
+        text="  Test transcription  ",
+        language=detected_language,
+    )
+
+    result = transcribe.transcribe_audio_with_language(audio)
+
+    assert result.text == "Test transcription"
+    assert result.language == expected_language
+
+    options = client.audio.transcriptions.create.call_args.kwargs
+
+    assert options["response_format"] == "verbose_json"
+    assert options["model"] == transcribe.WHISPER_MODEL
+    assert "language" not in options
+    client.audio.transcriptions.create.assert_called_once()
+
+
+@pytest.mark.parametrize("language", ["ru", "ro", "en"])
+def test_explicit_language_selection(tmp_path, fake_groq, language):
+    client, _ = fake_groq
+
+    audio = tmp_path / "sample.wav"
+    audio.write_bytes(b"fake audio content")
+
+    client.audio.transcriptions.create.return_value = SimpleNamespace(
+        text="Test transcription"
+    )
+
+    result = transcribe.transcribe_audio_with_language(audio, language)
+
+    assert result.text == "Test transcription"
+    assert result.language == language
+
+    options = client.audio.transcriptions.create.call_args.kwargs
+
+    assert options["language"] == language
+    assert options["response_format"] == "verbose_json"
+    client.audio.transcriptions.create.assert_called_once()
+
+
+def test_auto_language_with_none(tmp_path, fake_groq):
+    client, _ = fake_groq
+
+    audio = tmp_path / "sample.wav"
+    audio.write_bytes(b"fake audio content")
+
+    client.audio.transcriptions.create.return_value = SimpleNamespace(
+        text="Hello",
+        language="English",
+    )
+
+    result = transcribe.transcribe_audio_with_language(audio, None)
+
+    assert result.language == "en"
+    assert "language" not in client.audio.transcriptions.create.call_args.kwargs
+
+
+@pytest.mark.parametrize(
+    ("detected_language", "expected_error"),
+    [
+        (None, "Detected language is missing"),
+        ("", "Detected language is missing"),
+        ("French", "Unsupported detected language"),
+        ("fr", "Unsupported detected language"),
+    ],
+)
+def test_invalid_detected_language(
+    tmp_path, fake_groq, detected_language, expected_error
+):
+    client, _ = fake_groq
+
+    audio = tmp_path / "sample.wav"
+    audio.write_bytes(b"fake audio content")
+
+    client.audio.transcriptions.create.return_value = SimpleNamespace(
+        text="Bonjour",
+        language=detected_language,
+    )
+
+    with pytest.raises(ValueError, match=expected_error):
+        transcribe.transcribe_audio_with_language(audio)
+
+
+def test_invalid_requested_language(tmp_path, fake_groq):
+    _, constructor = fake_groq
+
+    audio = tmp_path / "sample.wav"
+    audio.write_bytes(b"fake audio content")
+
+    with pytest.raises(ValueError, match="Unsupported language"):
+        transcribe.transcribe_audio_with_language(audio, "fr")
+
+    constructor.assert_not_called()
+
+
+def test_empty_verbose_transcription(tmp_path, fake_groq):
+    client, _ = fake_groq
+
+    audio = tmp_path / "sample.wav"
+    audio.write_bytes(b"fake audio content")
+
+    client.audio.transcriptions.create.return_value = SimpleNamespace(
+        text="   ",
+        language="Russian",
+    )
+
+    with pytest.raises(ValueError, match="Transcription is empty"):
+        transcribe.transcribe_audio_with_language(audio)
