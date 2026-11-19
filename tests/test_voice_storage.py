@@ -450,3 +450,92 @@ async def test_cleanup_removes_orphan_pending_audio(
 
     assert deleted_count == 0
     assert not pending.exists()
+
+
+@pytest.mark.anyio
+async def test_cleanup_removes_old_orphan_upload(session, tmp_path, monkeypatch):
+    import os
+
+    monkeypatch.setattr(storage, "STORAGE_DIR", tmp_path)
+
+    orphan = tmp_path / ("a" * 32 + ".wav")
+    orphan.write_bytes(b"orphaned voice data")
+    old = (datetime.now(UTC) - timedelta(hours=26)).timestamp()
+    os.utime(orphan, (old, old))
+
+    @asynccontextmanager
+    async def fake_session_local():
+        yield session
+
+    monkeypatch.setattr(storage, "SessionLocal", fake_session_local)
+
+    assert await storage.delete_expired_records() == 0
+    assert not orphan.exists()
+
+
+@pytest.mark.anyio
+async def test_cleanup_preserves_new_upload_and_unrelated_files(
+    session, tmp_path, monkeypatch
+):
+    import os
+
+    monkeypatch.setattr(storage, "STORAGE_DIR", tmp_path)
+
+    uploading_now = tmp_path / ("b" * 32 + ".wav")
+    uploading_now.write_bytes(b"still processing")
+
+    legacy = tmp_path / "recording.wav"
+    legacy.write_bytes(b"not a managed upload")
+    old = (datetime.now(UTC) - timedelta(hours=26)).timestamp()
+    os.utime(legacy, (old, old))
+
+    non_audio = tmp_path / ("c" * 32 + ".txt")
+    non_audio.write_bytes(b"important data")
+    os.utime(non_audio, (old, old))
+
+    @asynccontextmanager
+    async def fake_session_local():
+        yield session
+
+    monkeypatch.setattr(storage, "SessionLocal", fake_session_local)
+
+    assert await storage.delete_expired_records() == 0
+    assert uploading_now.exists()
+    assert legacy.exists()
+    assert non_audio.exists()
+
+
+@pytest.mark.anyio
+async def test_cleanup_preserves_old_audio_with_database_record(
+    session, tmp_path, monkeypatch
+):
+    import os
+
+    monkeypatch.setattr(storage, "STORAGE_DIR", tmp_path)
+
+    audio = tmp_path / ("d" * 32 + ".wav")
+    audio.write_bytes(b"recorded voice data")
+    old = (datetime.now(UTC) - timedelta(hours=26)).timestamp()
+    os.utime(audio, (old, old))
+
+    now = datetime.now(UTC)
+    session.add(
+        VoiceRecord(
+            user_id=None,
+            audio_path=audio.name,
+            transcription="Voice with an active record",
+            language="en",
+            created_at=now,
+            expires_at=now + timedelta(hours=1),
+        )
+    )
+    await session.flush()
+
+    @asynccontextmanager
+    async def fake_session_local():
+        yield session
+
+    monkeypatch.setattr(storage, "SessionLocal", fake_session_local)
+
+    assert await storage.delete_expired_records() == 0
+    assert audio.exists()
