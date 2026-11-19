@@ -23,8 +23,13 @@ async def save_voice_record(
     audio_path: Path,
     text: str,
     language: str,
+    *,
+    user_id: int,
 ) -> VoiceRecord:
-    """Save recording metadata with a 24-hour expiration."""
+    """Save an authenticated user's recording with 24-hour retention."""
+
+    if not isinstance(user_id, int) or isinstance(user_id, bool) or user_id <= 0:
+        raise ValueError("user_id must be a positive integer")
 
     audio_path = Path(audio_path)
 
@@ -43,6 +48,7 @@ async def save_voice_record(
     now = datetime.now(UTC)
 
     record = VoiceRecord(
+        user_id=user_id,
         audio_path=audio_path.name,
         transcription=text.strip(),
         language=language,
@@ -62,16 +68,100 @@ async def save_voice_record(
     return record
 
 
+PENDING_RECOVERY_GRACE_SECONDS = 3600
+
+
+async def _recover_pending_audio(session: AsyncSession) -> None:
+    """Recover old interrupted cleanup operations."""
+
+    now_timestamp = datetime.now(UTC).timestamp()
+
+    for staged in STORAGE_DIR.glob(".*.pending"):
+        try:
+            if staged.is_symlink() or not staged.is_file():
+                continue
+
+            stem = staged.name[1 : -len(".pending")]
+            original_and_stamp, separator, token = stem.rpartition(".")
+
+            if (
+                not separator
+                or len(token) != 32
+                or any(char not in "0123456789abcdef" for char in token)
+            ):
+                continue
+
+            original_name, separator, stamp = original_and_stamp.rpartition(".")
+
+            if separator and stamp.startswith("ts-") and stamp[3:].isdigit():
+                created_at = float(stamp[3:])
+            else:
+                # Compatibility with previously staged filenames.
+                original_name = original_and_stamp
+                created_at = staged.stat().st_mtime
+
+            if (
+                not original_name
+                or original_name in {".", ".."}
+                or Path(original_name).name != original_name
+            ):
+                continue
+
+            age = now_timestamp - created_at
+
+            if age < PENDING_RECOVERY_GRACE_SECONDS:
+                continue
+
+            original = STORAGE_DIR / original_name
+
+            record_id = await session.scalar(
+                select(VoiceRecord.id)
+                .where(VoiceRecord.audio_path == original_name)
+                .limit(1)
+            )
+
+            if record_id is not None:
+                if original.exists():
+                    logger.warning(
+                        "Cannot restore pending audio: original exists: %s",
+                        original_name,
+                    )
+                    continue
+
+                await asyncio.to_thread(staged.rename, original)
+                logger.info("Restored pending audio: %s", original_name)
+
+            else:
+                await asyncio.to_thread(
+                    staged.unlink,
+                    missing_ok=True,
+                )
+                logger.info("Removed orphan pending audio: %s", staged.name)
+
+        except OSError:
+            logger.exception(
+                "Could not recover pending audio: %s",
+                staged.name,
+            )
+
+
 async def delete_expired_records() -> int:
-    """Remove expired audio files and their database records."""
+    """Remove expired records with recoverable audio staging."""
+
+    from uuid import uuid4
 
     now = datetime.now(UTC)
+    staged_files: list[tuple[Path, Path, int]] = []
     deleted_count = 0
 
     async with SessionLocal() as session:
+        await _recover_pending_audio(session)
+
         records = (
             await session.scalars(
-                select(VoiceRecord).where(VoiceRecord.expires_at <= now)
+                select(VoiceRecord)
+                .where(VoiceRecord.expires_at <= now)
+                .with_for_update(skip_locked=True)
             )
         ).all()
 
@@ -90,28 +180,61 @@ async def delete_expired_records() -> int:
                     )
                     continue
 
-                file_path = STORAGE_DIR / filename
+                original = STORAGE_DIR / filename
+                staged = STORAGE_DIR / (
+                    f".{filename}.ts-{int(now.timestamp())}.{uuid4().hex}.pending"
+                )
 
                 try:
                     await asyncio.to_thread(
-                        file_path.unlink,
-                        missing_ok=True,
+                        original.replace,
+                        staged,
                     )
+                except FileNotFoundError:
+                    # The audio is already missing; remove stale metadata.
+                    pass
                 except OSError:
                     logger.exception(
-                        "Failed to remove audio for record %s",
+                        "Cannot stage audio for record %s",
                         record.id,
                     )
                     continue
+                else:
+                    staged_files.append((original, staged, record.id))
 
                 await session.delete(record)
                 deleted_count += 1
 
             await session.commit()
 
-        except Exception:
-            await session.rollback()
-            logger.exception("Voice cleanup database operation failed")
+        except (Exception, asyncio.CancelledError):
+            try:
+                await session.rollback()
+            finally:
+                for original, staged, record_id in reversed(staged_files):
+                    try:
+                        await asyncio.to_thread(
+                            staged.replace,
+                            original,
+                        )
+                    except OSError:
+                        logger.exception(
+                            "Failed to restore audio for record %s",
+                            record_id,
+                        )
             raise
+
+    # Delete staged files only after database commit succeeds.
+    for _, staged, record_id in staged_files:
+        try:
+            await asyncio.to_thread(
+                staged.unlink,
+                missing_ok=True,
+            )
+        except OSError:
+            logger.exception(
+                "Failed to delete staged audio for record %s",
+                record_id,
+            )
 
     return deleted_count

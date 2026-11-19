@@ -1,6 +1,6 @@
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import DateTime, String, Text
+from sqlalchemy import DateTime, ForeignKey, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.models.database import base
@@ -20,6 +20,18 @@ class VoiceRecord(base):
     __tablename__ = "voice_records"
 
     id: Mapped[int] = mapped_column(primary_key=True)
+
+    # NULL is allowed for legacy records and deleted users.
+    # New records must receive a valid user_id from the service.
+    user_id: Mapped[int | None] = mapped_column(
+        ForeignKey(
+            "users.id",
+            name="fk_voice_records_user_id_users",
+            ondelete="SET NULL",
+        ),
+        nullable=True,
+        index=True,
+    )
 
     audio_path: Mapped[str] = mapped_column(
         String(500),
