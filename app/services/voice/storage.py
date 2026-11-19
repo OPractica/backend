@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -69,6 +70,12 @@ async def save_voice_record(
 
 
 PENDING_RECOVERY_GRACE_SECONDS = 3600
+# Give active uploads/transcriptions time to finish before cleaning crashed requests.
+ORPHAN_AUDIO_GRACE_SECONDS = 24 * 60 * 60
+# Only consider filenames created by save_uploaded_audio(), never arbitrary files.
+UPLOADED_AUDIO_NAME = re.compile(
+    r"[0-9a-f]{32}\.(?:flac|mp3|mp4|mpeg|mpga|m4a|ogg|wav|webm)"
+)
 
 
 async def _recover_pending_audio(session: AsyncSession) -> None:
@@ -145,6 +152,41 @@ async def _recover_pending_audio(session: AsyncSession) -> None:
             )
 
 
+async def _remove_orphaned_audio(session: AsyncSession) -> None:
+    """Delete old managed uploads that have no database record."""
+
+    cutoff = datetime.now(UTC).timestamp() - ORPHAN_AUDIO_GRACE_SECONDS
+
+    for audio_path in STORAGE_DIR.iterdir():
+        if UPLOADED_AUDIO_NAME.fullmatch(audio_path.name) is None:
+            continue
+
+        try:
+            # Never follow a link or touch a directory.
+            if audio_path.is_symlink() or not audio_path.is_file():
+                continue
+
+            if audio_path.stat().st_mtime >= cutoff:
+                continue
+
+            record_id = await session.scalar(
+                select(VoiceRecord.id)
+                .where(VoiceRecord.audio_path == audio_path.name)
+                .limit(1)
+            )
+            if record_id is not None:
+                continue
+
+            await asyncio.to_thread(audio_path.unlink)
+            logger.info("Removed orphaned voice upload: %s", audio_path.name)
+
+        except FileNotFoundError:
+            # Another cleanup worker may have deleted this file first.
+            continue
+        except OSError:
+            logger.exception("Could not clean orphaned audio: %s", audio_path.name)
+
+
 async def delete_expired_records() -> int:
     """Remove expired records with recoverable audio staging."""
 
@@ -156,6 +198,7 @@ async def delete_expired_records() -> int:
 
     async with SessionLocal() as session:
         await _recover_pending_audio(session)
+        await _remove_orphaned_audio(session)
 
         records = (
             await session.scalars(

@@ -1,7 +1,22 @@
 from datetime import datetime
-from typing import Annotated, Any, Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field, StringConstraints
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, StringConstraints
+from typing_extensions import TypedDict
+
+
+class VoiceAttributes(TypedDict, total=False):
+    """Optional seat constraints returned by the preference parser.
+
+    Missing means not specified. False means explicitly unwanted.
+    """
+
+    __pydantic_config__ = ConfigDict(extra="forbid")
+
+    near_window: StrictBool
+    quiet: StrictBool
+    docking_station: StrictBool
+    monitors_min: Annotated[int, Field(gt=0, strict=True)]
 
 
 class VoiceProcessingResult(BaseModel):
@@ -12,8 +27,8 @@ class VoiceProcessingResult(BaseModel):
         StringConstraints(strip_whitespace=True, min_length=1),
     ]
     language: Literal["ru", "ro", "en"]
-    attributes: dict[str, Any]
-    needs_clarification: list[Any]
+    attributes: VoiceAttributes
+    needs_clarification: list[Literal["cozy"]]
 
 
 class VoiceTranscriptionResponse(VoiceProcessingResult):
