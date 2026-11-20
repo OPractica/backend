@@ -12,6 +12,7 @@ from app.api.v1.ai import router as ai_router
 from app.api.v1.auth import router as auth_router
 from app.api.v1.bookings import router as bookings_router
 from app.api.v1.health import router as health_router
+from app.api.v1.meeting import router as meeting_router
 from app.api.v1.seats import router as seats_router
 from app.api.v1.voice import router as voice_router
 from app.core.config import settings
@@ -108,6 +109,7 @@ app.include_router(health_router, prefix="/api/v1")
 app.include_router(seats_router, prefix="/api/v1")
 app.include_router(auth_router, prefix="/api/v1")
 app.include_router(bookings_router, prefix="/api/v1")
+app.include_router(meeting_router, prefix="/api/v1")
 app.include_router(ai_router, prefix="/api/v1")
 app.include_router(voice_router, prefix="/api/v1")
 app.add_middleware(VoiceBodyLimitMiddleware)

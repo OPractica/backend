@@ -84,6 +84,53 @@ class Booking(Base):
     )
 
 
+class MeetingRoom(Base):
+    __tablename__ = "meeting_rooms"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    office_id: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
+    email: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    alias: Mapped[str] = mapped_column(String, nullable=False)
+    capacity: Mapped[int] = mapped_column(Integer, nullable=False)
+    equipments: Mapped[str] = mapped_column(String, nullable=False, default="")
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=True
+    )
+
+
+class MeetingRoomBooking(Base):
+    __tablename__ = "meeting_room_bookings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    room_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("meeting_rooms.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    status: Mapped[str] = mapped_column(String, default="confirmed", nullable=False)
+    created_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=True
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "ends_at > starts_at",
+            name="ck_meeting_room_bookings_ends_after_starts",
+        ),
+        ExcludeConstraint(
+            (room_id, "="),
+            (func.tstzrange(starts_at, ends_at, "[)"), "&&"),
+            name="excl_meeting_room_bookings_no_overlap",
+            using="gist",
+            where=(status == "confirmed"),
+        ),
+    )
+
+
 class RefreshToken(Base):
     __tablename__ = "refresh_tokens"
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
