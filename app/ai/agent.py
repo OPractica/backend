@@ -6,6 +6,7 @@ from langchain.agents import create_agent
 from langchain_core.language_models.chat_models import BaseChatModel
 
 from app.ai.llm import get_llm
+from app.ai.messages import REFUSALS
 from app.ai.tools import OFFICE_TZ, make_tools
 from app.core.config import settings
 
@@ -18,12 +19,6 @@ WEEKDAYS_RU = (
     "суббота",
     "воскресенье",
 )
-
-REFUSALS = {
-    "ru": "Я помогаю только с бронированием рабочих мест. Хотите забронировать место?",
-    "ro": "Vă pot ajuta doar cu rezervarea locurilor de muncă. Doriți să rezervați un loc?",
-    "en": "I can only help with booking workspaces. Would you like to book a seat?",
-}
 
 SYSTEM_PROMPT = """\
 # Роль
