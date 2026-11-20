@@ -1,0 +1,317 @@
+from datetime import UTC, datetime, timedelta
+from zoneinfo import ZoneInfo
+
+from sqlalchemy import delete, exists, func, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.config import settings
+from app.models.database import Booking, Seat
+
+
+class BookingError(Exception):
+    def __init__(self, message: str, code: str = "booking_error") -> None:
+        super().__init__(message)
+        self.code = code
+
+
+class BookingRuleError(BookingError):
+    def __init__(self, message: str, code: str = "booking_rule_violated") -> None:
+        super().__init__(message, code)
+
+
+def _overlap_conditions(starts_at: datetime, ends_at: datetime) -> tuple:
+    return (
+        Booking.status == "confirmed",
+        Booking.starts_at < ends_at,
+        Booking.ends_at > starts_at,
+    )
+
+
+def validate_booking_rules(starts_at: datetime, ends_at: datetime) -> None:
+    office_tz = ZoneInfo(settings.office_timezone)
+    start = starts_at.astimezone(office_tz)
+    end = ends_at.astimezone(office_tz)
+
+    if end <= start:
+        raise BookingRuleError(
+            "Время окончания должно быть позже времени начала.", "invalid_time_range"
+        )
+
+    now_with_buffer = datetime.now(office_tz) - timedelta(minutes=2)
+    if start < now_with_buffer:
+        raise BookingRuleError("Нельзя бронировать задним числом.", "booking_in_past")
+
+    if start.date() != end.date():
+        raise BookingRuleError(
+            "Бронь должна начинаться и заканчиваться в один день.", "booking_spans_days"
+        )
+
+    if start.weekday() >= 5:
+        raise BookingRuleError("Офис закрыт по выходным.", "office_closed_weekend")
+
+    opens = start.replace(
+        hour=settings.office_open_hour, minute=0, second=0, microsecond=0
+    )
+    closes = start.replace(
+        hour=settings.office_close_hour, minute=0, second=0, microsecond=0
+    )
+    if start < opens or end > closes:
+        raise BookingRuleError(
+            f"Часы работы офиса: с {settings.office_open_hour:02d}:00 до {settings.office_close_hour:02d}:00.",
+            "outside_office_hours",
+        )
+
+    if end - start > timedelta(hours=settings.booking_max_hours):
+        raise BookingRuleError(
+            f"Длительность брони не может превышать {settings.booking_max_hours} часов.",
+            "booking_too_long",
+        )
+
+    if end - start < timedelta(minutes=settings.booking_min_minutes):
+        raise BookingRuleError(
+            f"Минимальная длительность брони — {settings.booking_min_minutes} минут.",
+            "booking_too_short",
+        )
+
+
+async def get_seat_by_label(session: AsyncSession, label: str) -> Seat:
+    """Найти активное место по названию (например 7-A01). Регистр и пробелы по краям не важны."""
+    result = await session.execute(
+        select(Seat).where(
+            func.lower(Seat.label) == label.strip().lower(), Seat.is_active.is_(True)
+        )
+    )
+    seats = list(result.scalars().all())
+    if not seats:
+        raise BookingError(
+            f"Место {label} не найдено или недоступно.", "seat_not_found"
+        )
+    if len(seats) > 1:
+        raise BookingError(
+            f"Название {label} подходит нескольким местам.", "seat_label_ambiguous"
+        )
+    return seats[0]
+
+
+async def find_free_seats(
+    session: AsyncSession,
+    starts_at: datetime,
+    ends_at: datetime,
+    zone: str | None = None,
+) -> list[Seat]:
+    busy = exists().where(
+        Booking.seat_id == Seat.id,
+        *_overlap_conditions(starts_at, ends_at),
+    )
+    stmt = select(Seat).where(Seat.is_active.is_(True), ~busy).order_by(Seat.id)
+    if zone:
+        stmt = stmt.where(Seat.zone == zone)
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def get_seats_availability(
+    session: AsyncSession,
+    starts_at: datetime,
+    ends_at: datetime,
+):
+    is_booked = exists().where(
+        Booking.seat_id == Seat.id,
+        *_overlap_conditions(starts_at, ends_at),
+    )
+    stmt = (
+        select(Seat.id, Seat.label, is_booked.label("is_booked"))
+        .where(Seat.is_active.is_(True))
+        .order_by(Seat.id)
+    )
+    result = await session.execute(stmt)
+    return result.all()
+
+
+async def check_user(
+    session: AsyncSession,
+    user_id: int,
+    starts_at: datetime,
+    ends_at: datetime,
+) -> None:
+    # Checks if the user already has another active booking for that time
+    user_conflict = await session.execute(
+        select(Booking.id)
+        .where(
+            Booking.user_id == user_id,
+            *_overlap_conditions(starts_at, ends_at),
+        )
+        .limit(1)
+    )
+
+    if user_conflict.scalar_one_or_none() is not None:
+        raise BookingRuleError(
+            "У вас уже есть активная бронь на это время.", "user_booking_overlap"
+        )
+
+
+async def create_booking(
+    session: AsyncSession,
+    user_id: int,
+    seat_id: int,
+    starts_at: datetime,
+    ends_at: datetime,
+    source: str = "manual",
+) -> Booking:
+
+    validate_booking_rules(starts_at, ends_at)
+    await check_user(session, user_id, starts_at, ends_at)
+
+    if ends_at <= starts_at:
+        raise BookingError(
+            "Время окончания должно быть позже времени начала.", "invalid_time_range"
+        )
+
+    seat = await session.get(Seat, seat_id)
+    if seat is None or not seat.is_active:
+        raise BookingError(
+            f"Место {seat_id} не найдено или недоступно.", "seat_not_found"
+        )
+
+    conflict = await session.execute(
+        select(Booking.id)
+        .where(Booking.seat_id == seat_id, *_overlap_conditions(starts_at, ends_at))
+        .limit(1)
+    )
+    if conflict.scalar_one_or_none() is not None:
+        raise BookingError(
+            f"Место {seat.label} уже занято на это время.", "seat_already_booked"
+        )
+
+    booking = Booking(
+        user_id=user_id,
+        seat_id=seat_id,
+        starts_at=starts_at,
+        ends_at=ends_at,
+        source=source,
+    )
+    try:
+        # Savepoint: a parallel booking may slip past the check above,
+        # then the database constraint rejects ours and the session stays usable
+        async with session.begin_nested():
+            session.add(booking)
+    except IntegrityError as err:
+        if "excl_bookings_no_overlap" not in str(err.orig):
+            raise
+        raise BookingError(
+            f"Место {seat.label} уже занято на это время.", "seat_already_booked"
+        ) from None
+    return booking
+
+
+async def cancel_booking(
+    session: AsyncSession, user_id: int, booking_id: int
+) -> Booking:
+    booking = await session.get(Booking, booking_id)
+    # Для чужой и для несуществующей брони ответ одинаковый: не раскрываем чужие данные.
+    if booking is None or booking.user_id != user_id:
+        raise BookingError(f"Бронь {booking_id} не найдена.", "booking_not_found")
+    if booking.status != "confirmed":
+        raise BookingError(
+            f"Бронь {booking_id} уже отменена.", "booking_already_cancelled"
+        )
+
+    booking.status = "cancelled"
+    await session.flush()
+    return booking
+
+
+async def list_user_bookings(
+    session: AsyncSession, user_id: int, include_past: bool = False
+) -> list[Booking]:
+    stmt = select(Booking).where(
+        Booking.user_id == user_id, Booking.status == "confirmed"
+    )
+    if not include_past:
+        stmt = stmt.where(Booking.ends_at > datetime.now(UTC))
+    stmt = stmt.order_by(Booking.starts_at)
+    result = await session.execute(stmt)
+    return list(result.scalars().all())
+
+
+async def check_in_booking(
+    session: AsyncSession,
+    user_id: int,
+    booking_id: int,
+) -> Booking:
+    booking = await session.get(Booking, booking_id)
+
+    if booking is None or booking.user_id != user_id:
+        raise BookingError(f"Booking {booking_id} was not found.")
+
+    if booking.status != "confirmed":
+        raise BookingError("Only confirmed bookings can be checked in.")
+
+    if booking.is_checked_in:
+        raise BookingError("Presence is already confirmed.")
+
+    office_tz = ZoneInfo(settings.office_timezone)
+    now = datetime.now(office_tz)
+    start = booking.starts_at.astimezone(office_tz)
+
+    # Available 5 minutes before start
+    early_buffer = timedelta(minutes=5)
+    if now < (start - early_buffer):
+        raise BookingRuleError("Check-in is not available yet.")
+
+    # Auto-cancel if 10 minutes past start
+    deadline = start + timedelta(minutes=settings.checkin_minutes)
+    if now > deadline:
+        booking.status = "cancelled"
+        await session.flush()
+        raise BookingError(
+            f"Check-in window expired ({settings.checkin_minutes} minutes). Booking was cancelled."
+        )
+
+    booking.is_checked_in = True
+    await session.flush()
+    return booking
+
+
+async def auto_cancel_checkin(session: AsyncSession) -> list[Booking]:
+    office_tz = ZoneInfo(settings.office_timezone)
+    now = datetime.now(office_tz)
+    cutoff = now - timedelta(minutes=settings.checkin_minutes)
+
+    stmt = select(Booking).where(
+        Booking.status == "confirmed",
+        Booking.is_checked_in.is_(False),
+        Booking.starts_at <= cutoff,
+    )
+
+    result = await session.execute(stmt)
+    expired = list(result.scalars().all())
+
+    for b in expired:
+        b.status = "cancelled"
+
+    if expired:
+        await session.flush()
+    return expired
+
+
+async def cleanup_cancelled_bookings(
+    session: AsyncSession,
+    retention_days: int | None = None,
+) -> int:
+
+    if retention_days is not None:
+        days = retention_days
+    else:
+        days = settings.booking_retention_days
+
+    cutoff = datetime.now(UTC) - timedelta(days=days)
+
+    stmt = delete(Booking).where(
+        Booking.status == "cancelled",
+        Booking.created_at <= cutoff,
+    )
+    result = await session.execute(stmt)
+    await session.flush()
+    return result.rowcount
