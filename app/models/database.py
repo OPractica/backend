@@ -77,6 +77,51 @@ class Booking(base):
     )
 
 
+class MeetingRoom(base):
+    __tablename__ = "meeting_rooms"
+
+    id = Column(Integer, primary_key=True, index=True)
+    # No offices table yet: the office is a plain number, as in the meeting room API
+    office_id = Column(Integer, nullable=False, index=True)
+    email = Column(String, unique=True, nullable=False)
+    alias = Column(String, nullable=False)
+    capacity = Column(Integer, nullable=False)
+    # Comma-separated, for example "TV, Whiteboard, PABX"
+    equipments = Column(String, nullable=False, default="")
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class MeetingRoomBooking(base):
+    __tablename__ = "meeting_room_bookings"
+
+    id = Column(Integer, primary_key=True, index=True)
+    room_id = Column(
+        Integer, ForeignKey("meeting_rooms.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id = Column(
+        Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    starts_at = Column(DateTime(timezone=True), nullable=False)
+    ends_at = Column(DateTime(timezone=True), nullable=False)
+    status = Column(String, default="confirmed", nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint(
+            "ends_at > starts_at",
+            name="ck_meeting_room_bookings_ends_after_starts",
+        ),
+        ExcludeConstraint(
+            (room_id, "="),
+            (func.tstzrange(starts_at, ends_at, "[)"), "&&"),
+            name="excl_meeting_room_bookings_no_overlap",
+            using="gist",
+            where=(status == "confirmed"),
+        ),
+    )
+
+
 class RefreshToken(base):
     __tablename__ = "refresh_tokens"
     id = Column(Integer, primary_key=True, index=True)
