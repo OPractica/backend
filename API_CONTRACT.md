@@ -262,6 +262,59 @@ Responses:
 
 ---
 
+## Meeting rooms
+
+The paths, parameters and response fields follow the Meeting Room Reservation API guide,
+so they are camelCase here, unlike the rest of the API.
+
+### `GET /meeting/getMeetingRoomsWithStatusByOfficeId`
+Every active meeting room of an office with its status for a time interval. No auth.
+
+Query (required, same for both availability endpoints):
+| parameter | type | |
+|---|---|---|
+| `officeId` | int | office id |
+| `fromDate` | datetime | start (no zone = office time) |
+| `toDate` | datetime | end, must be later than `fromDate` |
+
+Example: `/meeting/getMeetingRoomsWithStatusByOfficeId?officeId=1&fromDate=2026-11-16T09:00:00Z&toDate=2026-11-16T09:30:00Z`
+
+- **200** `MeetingRoomWithStatus[]`, ordered by `roomId`. An unknown office returns `[]`.
+- **422** `fromDate` is not earlier than `toDate` (`code`: `invalid_time_range`)
+  or the parameters are missing (`code`: `validation_error`)
+
+A room is busy if it has a `confirmed` booking overlapping the interval. Back-to-back bookings do not overlap.
+
+### `GET /meeting/getBusyMeetingRoomsByOfficeId`
+Ids of the office's rooms that are busy in the interval. Same query and errors as above. No auth.
+- **200** `int[]`, for example `[10301, 10304]`. `[]` means every room is free.
+
+### 🔒 `POST /meeting/bookings`
+Book a meeting room for the current user. No email is sent.
+
+Request:
+```json
+{"room_id": 10301, "starts_at": "2026-11-16T09:00:00Z", "ends_at": "2026-11-16T09:30:00Z"}
+```
+- **201** `MeetingRoomBooking`
+- **422** a booking rule is broken: the same rules as for seats in `POST /bookings`, except the overlap
+  with the user's own bookings, which is not checked for rooms
+- **409** `code`: `room_not_found` (the room does not exist or is inactive) or `room_already_booked`
+- **401**, **403**
+
+### 🔒 `GET /meeting/bookings/me`
+My confirmed meeting room bookings that have not ended yet, ordered by `starts_at` ascending.
+- **200** `MeetingRoomBooking[]`
+- **401**, **403**
+
+### 🔒 `PATCH /meeting/bookings/{booking_id}/cancel`
+Cancel your own meeting room booking. No request body.
+- **200** `MeetingRoomBooking` (with `status: "cancelled"`)
+- **404** `code`: `booking_not_found` or `booking_already_cancelled`
+- **401**, **403**, **422** (`booking_id` is not a number)
+
+---
+
 ## AI chat
 
 ### 🔒 `POST /ai/chat`
@@ -338,6 +391,26 @@ to SVG elements must be agreed with the backend separately.
 ```
 `status`: `"confirmed"` | `"cancelled"`. `source`: `"manual"` | `"ai"`.
 `is_checked_in` is currently always `false`; there is no check-in endpoint.
+
+### MeetingRoomWithStatus
+```json
+{
+  "roomId": 10301, "roomEmail": "chili@orange.md", "roomAlias": "Orange {kITchen} - Chili",
+  "roomCapacity": "10", "roomEquipments": "Room, TV, Whiteboard", "isBusy": true
+}
+```
+`roomCapacity` is a **string**: parse it with `parseInt()` before comparing.
+`roomEquipments` is a comma-separated string.
+
+### MeetingRoomBooking
+```json
+{
+  "id": 7, "room_id": 10301, "user_id": 1,
+  "starts_at": "2026-11-16T09:00:00Z", "ends_at": "2026-11-16T09:30:00Z",
+  "status": "confirmed", "created_at": "2026-11-15T12:00:00Z"
+}
+```
+`status`: `"confirmed"` | `"cancelled"`.
 
 ---
 

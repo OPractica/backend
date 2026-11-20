@@ -2,6 +2,7 @@ from datetime import datetime
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic.alias_generators import to_camel
 
 
 class ErrorResponse(BaseModel):
@@ -100,3 +101,32 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     answer: str
     session_id: str
+
+
+class MeetingRoomWithStatus(BaseModel):
+    # Field names follow the meeting room API guide: roomId, roomEmail, ...
+    model_config = ConfigDict(alias_generator=to_camel, populate_by_name=True)
+
+    room_id: int
+    room_email: str
+    room_alias: str
+    room_capacity: str
+    room_equipments: str
+    is_busy: bool
+
+
+class MeetingRoomBookingCreate(BaseModel):
+    room_id: int
+    starts_at: datetime
+    ends_at: datetime
+
+
+class MeetingRoomBookingResponse(BaseModel):
+    id: int
+    room_id: int
+    user_id: int
+    starts_at: datetime
+    ends_at: datetime
+    status: str
+    created_at: datetime
+    model_config = ConfigDict(from_attributes=True)
