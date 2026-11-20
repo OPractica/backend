@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 from sqlalchemy import delete, exists, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -190,8 +191,17 @@ async def create_booking(
         ends_at=ends_at,
         source=source,
     )
-    session.add(booking)
-    await session.flush()
+    try:
+        # Savepoint: a parallel booking may slip past the check above,
+        # then the database constraint rejects ours and the session stays usable
+        async with session.begin_nested():
+            session.add(booking)
+    except IntegrityError as err:
+        if "excl_bookings_no_overlap" not in str(err.orig):
+            raise
+        raise BookingError(
+            f"Место {seat.label} уже занято на это время.", "seat_already_booked"
+        ) from None
     return booking
 
 
