@@ -69,7 +69,9 @@ async def chat(
     current_user: CurrentUser,
 ):
     try:
-        answer, session_id = await run_chat(current_user.id, body.text, body.session_id)
+        answer, session_id = await run_chat(
+            current_user.id, body.text, body.session_id, body.language
+        )
     except ModelRateLimitError:
         raise APIError(
             status.HTTP_429_TOO_MANY_REQUESTS,
