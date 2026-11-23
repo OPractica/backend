@@ -330,6 +330,7 @@ Request:
 |---|---|---|
 | `text` | string, 1–2000 characters | |
 | `session_id` | string, up to 64, optional | omit in the first message. In following messages send the value from the previous response so the agent remembers the dialog |
+| `language` | `ru`, `ro` or `en`, optional | language of the user's message, for example from voice recognition. If omitted, the assistant detects it from the text |
 
 Responses:
 - **200**

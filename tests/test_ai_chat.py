@@ -222,3 +222,30 @@ async def test_chat_returns_503_when_the_local_model_server_fails(
     response = await client.post(CHAT_URL, json={"text": "Привет"}, headers=headers)
 
     assert response.status_code == 503
+
+
+async def test_chat_passes_language_hint_to_the_graph(monkeypatch):
+    seen = {}
+
+    def fake_graph(agent):
+        class Graph:
+            async def ainvoke(self, state):
+                seen.update(state)
+                return {"messages": [AIMessage("ok")], "answer": "ok"}
+
+        return Graph()
+
+    use_fake_model(monkeypatch, ScriptedChatModel(responses=[AIMessage("ok")]))
+    monkeypatch.setattr(ai_chat, "build_dialog_graph", fake_graph)
+    answer, _ = await ai_chat.run_chat(1, "Привет", language="ro")
+    assert answer == "ok"
+    assert seen["language_hint"] == "ro"
+    assert seen["text"] == "Привет"
+
+
+async def test_chat_rejects_unknown_language(client: AsyncClient):
+    headers, _ = await register_and_login(client)
+    response = await client.post(
+        CHAT_URL, json={"text": "hi", "language": "de"}, headers=headers
+    )
+    assert response.status_code == 422

@@ -96,6 +96,7 @@ class RefreshRequest(BaseModel):
 class ChatRequest(BaseModel):
     text: str = Field(min_length=1, max_length=2000)
     session_id: str | None = Field(default=None, max_length=64)
+    language: Literal["ru", "ro", "en"] | None = None
 
 
 class ChatResponse(BaseModel):
