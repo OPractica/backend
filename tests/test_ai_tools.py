@@ -70,6 +70,10 @@ def test_tool_cards_have_expected_names_and_arguments():
         "book_seat": ["seat", "start", "end"],
         "cancel_my_booking": ["booking_id"],
         "list_my_bookings": [],
+        "search_free_meeting_rooms": ["start", "end", "min_capacity"],
+        "book_meeting_room": ["room", "start", "end"],
+        "cancel_meeting_room_booking": ["booking_id"],
+        "list_my_meeting_room_bookings": [],
     }
 
 

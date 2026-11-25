@@ -1,3 +1,4 @@
+import unicodedata
 from datetime import UTC, datetime
 
 from sqlalchemy import exists, select
@@ -23,6 +24,35 @@ async def get_rooms_with_status(
         .order_by(MeetingRoom.id)
     )
     return [(room, is_busy) for room, is_busy in result]
+
+
+def _normalize_name(value: str) -> str:
+    """'Cabină 1' и 'cabina 1' это одно и то же: регистр, диакритика и пробелы не важны."""
+    decomposed = unicodedata.normalize("NFKD", value.strip().casefold())
+    return " ".join(
+        "".join(ch for ch in decomposed if not unicodedata.combining(ch)).split()
+    )
+
+
+async def get_room_by_alias(
+    session: AsyncSession, alias: str, office_id: int
+) -> MeetingRoom:
+    """Найти активную переговорную офиса по названию (например «Sala 2»)."""
+    result = await session.scalars(
+        select(MeetingRoom).where(
+            MeetingRoom.office_id == office_id, MeetingRoom.is_active.is_(True)
+        )
+    )
+    wanted = _normalize_name(alias)
+    rooms = [room for room in result if _normalize_name(room.alias) == wanted]
+    if not rooms:
+        raise BookingError(f"Переговорка {alias} не найдена.", "room_not_found")
+    if len(rooms) > 1:
+        raise BookingError(
+            f"Название {alias} подходит нескольким переговорным.",
+            "room_alias_ambiguous",
+        )
+    return rooms[0]
 
 
 async def create_room_booking(

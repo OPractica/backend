@@ -12,7 +12,12 @@ from datetime import datetime
 from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
 
 from app.ai.language import Language
-from app.ai.messages import booking_cancelled, booking_confirmation
+from app.ai.messages import (
+    booking_cancelled,
+    booking_confirmation,
+    room_cancelled,
+    room_confirmation,
+)
 
 # Формат результатов инструментов задан в app/ai/tools.py (book_seat, cancel_my_booking).
 BOOKED = re.compile(
@@ -20,6 +25,11 @@ BOOKED = re.compile(
     r"from (?P<start>\d{4}-\d{2}-\d{2} \d{2}:\d{2}) to (?P<end>\d{4}-\d{2}-\d{2} \d{2}:\d{2})$"
 )
 CANCELLED = re.compile(r"^booking (?P<id>\d+) cancelled$")
+ROOM_BOOKED = re.compile(
+    r"^meeting room booking created: booking id (?P<id>\d+), room (?P<room>.+), "
+    r"from (?P<start>\d{4}-\d{2}-\d{2} \d{2}:\d{2}) to (?P<end>\d{4}-\d{2}-\d{2} \d{2}:\d{2})$"
+)
+ROOM_CANCELLED = re.compile(r"^meeting room booking (?P<id>\d+) cancelled$")
 TIME_FORMAT = "%Y-%m-%d %H:%M"
 
 
@@ -52,4 +62,20 @@ def confirmations_for(messages: list[BaseMessage], language: Language) -> list[s
             found := CANCELLED.match(content)
         ):
             texts.append(booking_cancelled(language, int(found["id"])))
+        elif message.name == "book_meeting_room" and (
+            found := ROOM_BOOKED.match(content)
+        ):
+            texts.append(
+                room_confirmation(
+                    language,
+                    found["room"],
+                    datetime.strptime(found["start"], TIME_FORMAT),
+                    datetime.strptime(found["end"], TIME_FORMAT),
+                    int(found["id"]),
+                )
+            )
+        elif message.name == "cancel_meeting_room_booking" and (
+            found := ROOM_CANCELLED.match(content)
+        ):
+            texts.append(room_cancelled(language, int(found["id"])))
     return texts
