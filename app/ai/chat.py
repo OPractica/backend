@@ -1,4 +1,4 @@
-"""Единый вход в агента для API: история диалога по сессиям и вызов агента."""
+"""Единый вход в агента для API: история диалога по сессиям и вызов графа."""
 
 from uuid import uuid4
 
@@ -25,7 +25,7 @@ async def run_chat(
     session_id = session_id or uuid4().hex
     key = (user_id, session_id)
     messages = [*_history.get(key, []), HumanMessage(content=text)]
-    graph = build_dialog_graph(build_agent(user_id))
+    graph = build_dialog_graph(lambda language: build_agent(user_id, language=language))
     result = await graph.ainvoke(
         {"messages": messages, "text": text, "language_hint": language}
     )

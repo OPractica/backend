@@ -17,6 +17,8 @@ class Settings(BaseSettings):
     google_api_key: str = ""
     llm_provider: Literal["gemini", "ollama"] = "gemini"
     llm_model: str = "gemini-3.5-flash-lite"
+    # Запасные модели Gemini через запятую: включаются, если основная отвечает ошибкой 503
+    llm_fallback_models: str = "gemini-3.1-flash-lite,gemini-3.5-flash"
     ollama_base_url: str = "http://localhost:11434"
     office_timezone: str = "Europe/Chisinau"
     jwt_secret: str

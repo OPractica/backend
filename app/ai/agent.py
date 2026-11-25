@@ -3,9 +3,11 @@
 from datetime import datetime, timedelta
 
 from langchain.agents import create_agent
+from langchain.agents.middleware import ModelFallbackMiddleware, ModelRetryMiddleware
 from langchain_core.language_models.chat_models import BaseChatModel
 
-from app.ai.llm import get_llm
+from app.ai.language import LANGUAGE_NAMES, Language
+from app.ai.llm import MODEL_ERRORS, get_fallback_llms, get_llm
 from app.ai.messages import REFUSALS
 from app.ai.tools import OFFICE_TZ, make_tools
 from app.core.config import settings
@@ -47,7 +49,7 @@ SYSTEM_PROMPT = """\
 Сейчас {now} (часовой пояс офиса: {tz}). Рабочие часы офиса: 9:00-19:00.
 Календарь (бери даты из него, сам их не считай):
 {calendar}
-Язык ответа всегда совпадает с языком ПОСЛЕДНЕГО сообщения пользователя (русский, румынский или английский).
+{language_rule}
 Результаты инструментов приходят на английском (короткие фразы и коды ошибок). Сам ответ ты всегда пишешь
 на языке пользователя своими словами: подтверждение брони, список мест, объяснение ошибки.
 
@@ -108,9 +110,24 @@ def build_calendar(now: datetime) -> str:
     )
 
 
-def build_system_prompt(now: datetime | None = None) -> str:
+def build_language_rule(language: Language | None) -> str:
+    if language is None:
+        return (
+            "Язык ответа всегда совпадает с языком ПОСЛЕДНЕГО сообщения пользователя "
+            "(русский, румынский или английский)."
+        )
+    return (
+        f"ЯЗЫК ОТВЕТА: {LANGUAGE_NAMES[language]} ({language}). Весь ответ пиши только на этом языке, "
+        "даже если эта инструкция, история диалога или результаты инструментов написаны на другом."
+    )
+
+
+def build_system_prompt(
+    now: datetime | None = None, language: Language | None = None
+) -> str:
     now = now or datetime.now(OFFICE_TZ)
     return SYSTEM_PROMPT.format(
+        language_rule=build_language_rule(language),
         now=now.strftime("%Y-%m-%d %H:%M, %A"),
         tz=settings.office_timezone,
         calendar=build_calendar(now),
@@ -121,17 +138,45 @@ def build_system_prompt(now: datetime | None = None) -> str:
 
 
 def build_agent(
-    user_id: int, llm: BaseChatModel | None = None, now: datetime | None = None
+    user_id: int,
+    llm: BaseChatModel | None = None,
+    now: datetime | None = None,
+    language: Language | None = None,
 ):
     """Собрать агента для пользователя.
 
     Время в инструкции фиксируется при сборке, поэтому для долгоживущего процесса
     агента нужно собирать заново на каждый запрос или сессию.
     llm и now можно передать в тестах и в оценке: модель по умолчанию из настроек,
-    время по умолчанию текущее.
+    время по умолчанию текущее. language задаёт язык ответа жёстко (его определяет граф).
     """
     return create_agent(
         llm or get_llm(),
         tools=make_tools(user_id),
-        system_prompt=build_system_prompt(now),
+        system_prompt=build_system_prompt(now, language),
+        middleware=build_resilience(llm),
     )
+
+
+def build_resilience(llm: BaseChatModel | None) -> list:
+    """Повтор запроса и запасные модели, если основная перегружена.
+
+    Включается только для настоящей модели из настроек. В тестах и оценке передают
+    свою модель (llm), и всё работает ровно так, как задано в тесте.
+    Порядок важен: сначала один повтор той же модели, затем переход на запасную.
+    """
+    if llm is not None:
+        return []
+    middleware: list = []
+    if fallbacks := get_fallback_llms():
+        middleware.append(ModelFallbackMiddleware(*fallbacks))
+    middleware.append(
+        ModelRetryMiddleware(
+            max_retries=1,
+            retry_on=MODEL_ERRORS,
+            on_failure="error",
+            initial_delay=1.0,
+            max_delay=3.0,
+        )
+    )
+    return middleware

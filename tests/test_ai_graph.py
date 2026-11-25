@@ -24,7 +24,7 @@ class FakeAgent:
 
 
 async def run(agent, text, hint=None):
-    graph = build_dialog_graph(agent)
+    graph = build_dialog_graph(lambda language: agent)
     return await graph.ainvoke(
         {"messages": [HumanMessage(text)], "text": text, "language_hint": hint}
     )
