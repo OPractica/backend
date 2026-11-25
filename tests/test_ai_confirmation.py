@@ -87,3 +87,50 @@ def test_two_actions_in_one_turn_give_two_confirmations():
         AIMessage("ok"),
     ]
     assert len(confirmations_for(messages, "en")) == 2
+
+
+ROOM_BOOKED = "meeting room booking created: booking id 7, room Cabină 1, from 2030-01-15 09:00 to 2030-01-15 10:00"
+
+
+@pytest.mark.parametrize(
+    ("language", "expected"),
+    [
+        (
+            "ru",
+            "Переговорная Cabină 1 забронирована на 2030-01-15 с 09:00 до 10:00. Номер брони: 7.",
+        ),
+        (
+            "ro",
+            "Cabină 1 a fost rezervată pentru 2030-01-15, între 09:00 și 10:00. Numărul rezervării: 7.",
+        ),
+        (
+            "en",
+            "Meeting room Cabină 1 is booked for 2030-01-15 from 09:00 to 10:00. Booking number: 7.",
+        ),
+    ],
+)
+def test_room_booking_becomes_a_template(language, expected):
+    messages = [
+        HumanMessage("x"),
+        tool_message("book_meeting_room", ROOM_BOOKED),
+        AIMessage("ok"),
+    ]
+    assert confirmations_for(messages, language) == [expected]
+
+
+def test_room_cancellation_becomes_a_template():
+    messages = [
+        HumanMessage("x"),
+        tool_message("cancel_meeting_room_booking", "meeting room booking 7 cancelled"),
+        AIMessage("ok"),
+    ]
+    assert confirmations_for(messages, "en") == ["Meeting room booking 7 is cancelled."]
+
+
+def test_room_result_is_not_confirmed_by_a_seat_tool_name():
+    messages = [
+        HumanMessage("x"),
+        tool_message("book_seat", ROOM_BOOKED),
+        AIMessage("ok"),
+    ]
+    assert confirmations_for(messages, "en") == []
