@@ -42,3 +42,27 @@ def test_get_llm_builds_a_local_ollama_model(monkeypatch):
     # The local server needs no key, the context is set explicitly, thinking is off
     assert llm.num_ctx == 8192
     assert llm.reasoning is False
+
+
+def test_fallback_models_come_from_settings_without_the_main_one(monkeypatch):
+    from app.ai.llm import get_fallback_llms
+
+    monkeypatch.setattr(settings, "google_api_key", "test-key")
+    monkeypatch.setattr(settings, "llm_model", "main-model")
+    monkeypatch.setattr(
+        settings, "llm_fallback_models", "main-model, backup-a ,backup-b,"
+    )
+
+    assert [llm.model for llm in get_fallback_llms()] == ["backup-a", "backup-b"]
+
+
+def test_no_fallback_models_for_the_local_provider(monkeypatch):
+    from app.ai.llm import get_fallback_llms
+
+    monkeypatch.setattr(settings, "llm_provider", "ollama")
+    assert get_fallback_llms() == []
+
+
+def test_gemini_requests_have_a_timeout(monkeypatch):
+    monkeypatch.setattr(settings, "google_api_key", "test-key")
+    assert get_llm().timeout == 30

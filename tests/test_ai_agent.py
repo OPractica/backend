@@ -145,3 +145,17 @@ async def test_system_prompt_includes_the_calendar():
     now = datetime(2030, 1, 15, 9, 30, tzinfo=ZoneInfo("Europe/Chisinau"))
 
     assert build_calendar(now) in build_system_prompt(now)
+
+
+async def test_resilience_is_off_for_an_injected_model_and_on_for_the_default(
+    monkeypatch,
+):
+    from app.ai.agent import build_resilience
+    from app.core.config import settings
+
+    monkeypatch.setattr(settings, "google_api_key", "test-key")
+    monkeypatch.setattr(settings, "llm_fallback_models", "backup-a")
+
+    assert build_resilience(ScriptedChatModel(responses=[])) == []
+    names = [type(m).__name__ for m in build_resilience(None)]
+    assert names == ["ModelFallbackMiddleware", "ModelRetryMiddleware"]

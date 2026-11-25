@@ -1,9 +1,17 @@
 """Определение языка сообщения кодом (ru / ro / en), а не моделью."""
 
+from collections.abc import Iterable
 from typing import Literal
 
 Language = Literal["ru", "ro", "en"]
 LANGUAGES: tuple[Language, ...] = ("ru", "ro", "en")
+LANGUAGE_NAMES: dict[Language, str] = {
+    "ru": "русский",
+    "ro": "румынский",
+    "en": "английский",
+}
+# Короткая латиница («ok», «da», «yes») не показывает язык: ru/ro/en нельзя отличить
+MIN_LATIN_LETTERS = 6
 
 ROMANIAN_DIACRITICS = "ăâîșțşţ"
 ROMANIAN_WORDS = frozenset(
@@ -42,3 +50,37 @@ def detect_language(
     if words & ROMANIAN_WORDS or any(ch in lowered for ch in ROMANIAN_DIACRITICS):
         return "ro"
     return "en"
+
+
+def detect_confident(text: str) -> Language | None:
+    """Язык сообщения или None, если по тексту его нельзя определить уверенно.
+
+    Кириллица и румынские слова или буквы надёжны всегда. Короткая латиница
+    («ok», «da», «yes») и сообщения без букв («7-A03», «1») неоднозначны.
+    """
+    words = [w for w in text.split() if not any(ch.isdigit() for ch in w)]
+    letters = [ch for ch in " ".join(words) if ch.isalpha()]
+    if not letters:
+        return None
+    language = detect_language(text)
+    if language == "en" and len(letters) < MIN_LATIN_LETTERS:
+        return None
+    return language
+
+
+def dialog_language(
+    texts_newest_first: Iterable[str],
+    hint: Language | None = None,
+    default: Language = "ru",
+) -> Language:
+    """Язык диалога: подсказка клиента, иначе последнее сообщение с понятным языком.
+
+    Короткие ответы вроде «да», «ok», «7-A03» не переключают язык диалога:
+    берётся язык ближайшего предыдущего сообщения пользователя.
+    """
+    if hint in LANGUAGES:
+        return hint
+    for text in texts_newest_first:
+        if (language := detect_confident(text)) is not None:
+            return language
+    return default
