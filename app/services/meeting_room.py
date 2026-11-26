@@ -87,9 +87,10 @@ async def create_room_booking(
     return booking
 
 
-async def cancel_room_booking(
+async def get_cancellable_room_booking(
     session: AsyncSession, user_id: int, booking_id: int
 ) -> MeetingRoomBooking:
+    """The user's active room booking that can be cancelled. Changes nothing."""
     booking = await session.get(MeetingRoomBooking, booking_id)
     # Same answer for someone else's booking and a missing one
     if booking is None or booking.user_id != user_id:
@@ -98,6 +99,13 @@ async def cancel_room_booking(
         raise BookingError(
             f"Бронь {booking_id} уже отменена.", "booking_already_cancelled"
         )
+    return booking
+
+
+async def cancel_room_booking(
+    session: AsyncSession, user_id: int, booking_id: int
+) -> MeetingRoomBooking:
+    booking = await get_cancellable_room_booking(session, user_id, booking_id)
     booking.status = "cancelled"
     await session.flush()
     return booking

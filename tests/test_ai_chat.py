@@ -49,9 +49,7 @@ def use_fake_model(monkeypatch, model: ScriptedChatModel) -> None:
     monkeypatch.setattr(
         ai_chat,
         "build_agent",
-        lambda user_id, language=None: build_agent(
-            user_id, llm=model, language=language
-        ),
+        lambda user_id, **options: build_agent(user_id, llm=model, **options),
     )
 
 
@@ -233,7 +231,7 @@ async def test_chat_returns_503_when_the_local_model_server_fails(
 async def test_chat_passes_language_hint_to_the_graph(monkeypatch):
     seen = {}
 
-    def fake_graph(agent_for):
+    def fake_graph(agent_for, cancel):
         class Graph:
             async def ainvoke(self, state):
                 seen.update(state)

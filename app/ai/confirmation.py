@@ -15,9 +15,12 @@ from app.ai.language import Language
 from app.ai.messages import (
     booking_cancelled,
     booking_confirmation,
+    cancel_question,
+    room_cancel_question,
     room_cancelled,
     room_confirmation,
 )
+from app.ai.pending import PendingCancel
 
 # Формат результатов инструментов задан в app/ai/tools.py (book_seat, cancel_my_booking).
 BOOKED = re.compile(
@@ -30,6 +33,14 @@ ROOM_BOOKED = re.compile(
     r"from (?P<start>\d{4}-\d{2}-\d{2} \d{2}:\d{2}) to (?P<end>\d{4}-\d{2}-\d{2} \d{2}:\d{2})$"
 )
 ROOM_CANCELLED = re.compile(r"^meeting room booking (?P<id>\d+) cancelled$")
+CANCEL_REQUESTED = re.compile(
+    r"^confirmation required: booking id (?P<id>\d+), seat (?P<seat>[^,\s]+), "
+    r"from (?P<start>\d{4}-\d{2}-\d{2} \d{2}:\d{2}) to (?P<end>\d{4}-\d{2}-\d{2} \d{2}:\d{2})$"
+)
+ROOM_CANCEL_REQUESTED = re.compile(
+    r"^confirmation required: meeting room booking id (?P<id>\d+), room (?P<room>.+), "
+    r"from (?P<start>\d{4}-\d{2}-\d{2} \d{2}:\d{2}) to (?P<end>\d{4}-\d{2}-\d{2} \d{2}:\d{2})$"
+)
 TIME_FORMAT = "%Y-%m-%d %H:%M"
 
 
@@ -79,3 +90,33 @@ def confirmations_for(messages: list[BaseMessage], language: Language) -> list[s
         ):
             texts.append(room_cancelled(language, int(found["id"])))
     return texts
+
+
+def cancel_requests_for(
+    messages: list[BaseMessage], language: Language
+) -> tuple[list[PendingCancel], list[str]]:
+    """Отмены, которые модель запросила за этот ход, и вопросы о них для пользователя."""
+    requests: dict[tuple[str, int], str] = {}  # повторный вызов не дублирует вопрос
+    for message in messages_of_this_turn(messages):
+        if not isinstance(message, ToolMessage):
+            continue
+        content = message.text.strip()
+        if message.name == "cancel_my_booking" and (
+            found := CANCEL_REQUESTED.match(content)
+        ):
+            kind, name, question = "seat", found["seat"], cancel_question
+        elif message.name == "cancel_meeting_room_booking" and (
+            found := ROOM_CANCEL_REQUESTED.match(content)
+        ):
+            kind, name, question = "room", found["room"], room_cancel_question
+        else:
+            continue
+        requests[kind, int(found["id"])] = question(
+            language,
+            name,
+            datetime.strptime(found["start"], TIME_FORMAT),
+            datetime.strptime(found["end"], TIME_FORMAT),
+            int(found["id"]),
+        )
+    pending = [PendingCancel(kind=kind, id=number) for kind, number in requests]
+    return pending, list(requests.values())

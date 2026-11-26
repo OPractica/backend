@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 
 from langchain_core.tools import BaseTool, tool
 
+from app.ai.pending import PendingCancel
 from app.core.config import settings
 from app.core.db import SessionLocal
 from app.models.database import MeetingRoom, Seat, User
@@ -14,6 +15,7 @@ from app.services.booking import (
     cancel_booking,
     create_booking,
     find_free_seats,
+    get_cancellable_booking,
     get_seat_by_label,
     list_user_bookings,
 )
@@ -25,6 +27,7 @@ from app.services.email_templates import (
 from app.services.meeting_room import (
     cancel_room_booking,
     create_room_booking,
+    get_cancellable_room_booking,
     get_room_by_alias,
     get_rooms_with_status,
     list_user_room_bookings,
@@ -124,10 +127,33 @@ async def _send_ai_mail(session, user_id: int, subject: str, html: str) -> None:
         logger.exception("Failed to send AI booking email")
 
 
-def make_tools(user_id: int) -> list[BaseTool]:
+async def cancel_confirmed(user_id: int, actions: list[PendingCancel]) -> list[bool]:
+    """Отменить брони, которые пользователь подтвердил. Вернуть успех по каждой."""
+    results = []
+    for action in actions:
+        cancel = cancel_booking if action["kind"] == "seat" else cancel_room_booking
+        try:
+            async with SessionLocal() as session:
+                booking = await cancel(session, user_id, action["id"])
+                await session.commit()
+                # Письма отправляются только о местах, как и в инструменте отмены
+                if action["kind"] == "seat":
+                    seat = await session.get(Seat, booking.seat_id)
+                    seat_label = seat.label if seat else f"#{booking.seat_id}"
+                    subject, html = booking_cancelled_html(booking, seat_label)
+                    await _send_ai_mail(session, user_id, subject, html)
+            results.append(True)
+        except BookingError:
+            results.append(False)
+    return results
+
+
+def make_tools(user_id: int, confirm_cancel: bool = False) -> list[BaseTool]:
     """Собрать инструменты для конкретного пользователя.
 
     user_id зашит в инструменты: модель не может бронировать или отменять за других.
+    confirm_cancel: инструменты отмены только проверяют бронь и просят подтверждение,
+    а саму отмену выполняет код после ответа пользователя.
     """
 
     @tool
@@ -206,6 +232,16 @@ def make_tools(user_id: int) -> list[BaseTool]:
         """
         try:
             async with SessionLocal() as session:
+                if confirm_cancel:
+                    booking = await get_cancellable_booking(
+                        session, user_id, booking_id
+                    )
+                    seat = await session.get(Seat, booking.seat_id)
+                    return (
+                        f"confirmation required: booking id {booking.id}, "
+                        f"seat {seat.label if seat else '?'}, "
+                        f"from {_fmt(booking.starts_at)} to {_fmt(booking.ends_at)}"
+                    )
                 booking = await cancel_booking(session, user_id, booking_id)
                 await session.commit()
 
@@ -281,6 +317,16 @@ def make_tools(user_id: int) -> list[BaseTool]:
         """
         try:
             async with SessionLocal() as session:
+                if confirm_cancel:
+                    booking = await get_cancellable_room_booking(
+                        session, user_id, booking_id
+                    )
+                    room = await session.get(MeetingRoom, booking.room_id)
+                    return (
+                        f"confirmation required: meeting room booking id {booking.id}, "
+                        f"room {room.alias if room else '?'}, "
+                        f"from {_fmt(booking.starts_at)} to {_fmt(booking.ends_at)}"
+                    )
                 booking = await cancel_room_booking(session, user_id, booking_id)
                 await session.commit()
                 return f"meeting room booking {booking.id} cancelled"

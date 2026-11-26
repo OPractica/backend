@@ -8,6 +8,7 @@ from app.ai.agent import build_agent
 from app.ai.graph import build_dialog_graph
 from app.ai.language import Language
 from app.ai.memory import load_history, save_history
+from app.ai.tools import cancel_confirmed
 
 
 async def run_chat(
@@ -24,7 +25,10 @@ async def run_chat(
     """
     session_id = session_id or uuid4().hex
     messages = [*await load_history(user_id, session_id), HumanMessage(content=text)]
-    graph = build_dialog_graph(lambda language: build_agent(user_id, language=language))
+    graph = build_dialog_graph(
+        lambda language: build_agent(user_id, language=language, confirm_cancel=True),
+        lambda actions: cancel_confirmed(user_id, actions),
+    )
     result = await graph.ainvoke(
         {"messages": messages, "text": text, "language_hint": language}
     )
