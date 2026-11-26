@@ -65,6 +65,11 @@ def _fmt(moment: datetime) -> str:
     return moment.astimezone(OFFICE_TZ).strftime("%Y-%m-%d %H:%M")
 
 
+def _equipment(value: str) -> set[str]:
+    """'TV,  whiteboard ' -> {'tv', 'whiteboard'}: регистр и лишние пробелы не важны."""
+    return {" ".join(item.split()).casefold() for item in value.split(",")} - {""}
+
+
 def _error_hint(code: str) -> str | None:
     """Короткое английское пояснение к коду ошибки сервиса (язык ответа выберет модель)."""
     hints = {
@@ -257,14 +262,20 @@ def make_tools(user_id: int, confirm_cancel: bool = False) -> list[BaseTool]:
 
     @tool
     async def search_free_meeting_rooms(
-        start: str, end: str, min_capacity: int = 0
+        start: str, end: str, min_capacity: int = 0, equipment: str = ""
     ) -> str:
         """Найти свободные переговорные на интервал времени.
 
         start: начало, местное время, формат ГГГГ-ММ-ДДTЧЧ:ММ (например 2026-10-16T09:00).
         end: конец в том же формате.
-        min_capacity: необязательно, минимум мест (человек). Передавай, только если пользователь назвал число людей.
-        Возвращает список свободных переговорных: название (например Sala 2), вместимость и оборудование.
+        min_capacity: число людей на встрече. Передавай всегда, когда пользователь назвал,
+        сколько будет человек («на шестерых», «pentru 6 persoane», «for 6 people»).
+        equipment: нужное оборудование через запятую, английскими названиями из данных:
+        TV, Whiteboard. Передавай, когда пользователь назвал оборудование на любом языке:
+        «телевизор», «televizor», «TV» -> TV; «доска», «tablă», «whiteboard» -> Whiteboard.
+        Подходит только переговорная, где есть всё перечисленное.
+        Возвращает только подходящие свободные переговорные: название (например Ketchup),
+        вместимость и оборудование.
         """
         try:
             starts_at, ends_at = _parse_interval(start, end)
@@ -274,22 +285,28 @@ def make_tools(user_id: int, confirm_cancel: bool = False) -> list[BaseTool]:
                 )
         except BookingError as error:
             return _error_text(error)
-        free = [
-            room for room, busy in rooms if not busy and room.capacity >= min_capacity
-        ]
+        free = [room for room, busy in rooms if not busy]
         if not free:
             return "no free meeting rooms for this time"
+        wanted = _equipment(equipment)
+        fitting = [
+            room
+            for room in free
+            if room.capacity >= min_capacity and wanted <= _equipment(room.equipments)
+        ]
+        if not fitting:
+            return "no free meeting room has enough seats and all the equipment"
         return "\n".join(
             f"room={room.alias} capacity={room.capacity} equipment={room.equipments or 'none'}"
-            for room in free
+            for room in fitting
         )
 
     @tool
     async def book_meeting_room(room: str, start: str, end: str) -> str:
         """Забронировать переговорную для текущего пользователя.
 
-        room: название переговорной, например Sala 2. Бери его из результата search_free_meeting_rooms
-        или из слов пользователя, ничего не придумывай.
+        room: название переговорной: Chili, Ketchup, Boiling Room, Cabină 1 или Cabină 2.
+        Бери его из результата search_free_meeting_rooms или из слов пользователя, ничего не придумывай.
         start: начало, формат ГГГГ-ММ-ДДTЧЧ:ММ, местное время.
         end: конец в том же формате.
         """

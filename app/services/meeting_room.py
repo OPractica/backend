@@ -37,7 +37,7 @@ def _normalize_name(value: str) -> str:
 async def get_room_by_alias(
     session: AsyncSession, alias: str, office_id: int
 ) -> MeetingRoom:
-    """Найти активную переговорную офиса по названию (например «Sala 2»)."""
+    """Найти активную переговорную офиса по названию (например «Boiling Room»)."""
     result = await session.scalars(
         select(MeetingRoom).where(
             MeetingRoom.office_id == office_id, MeetingRoom.is_active.is_(True)

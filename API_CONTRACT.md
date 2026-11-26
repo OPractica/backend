@@ -321,6 +321,8 @@ Cancel your own meeting room booking. No request body.
 Send a text message to the assistant. The agent searches for seats, books and cancels
 on behalf of the current user and answers in the language of the message (ru, ro, en).
 Requests that are not about booking are declined.
+For meeting rooms the agent takes the number of people and the needed equipment (for example TV, Whiteboard)
+and offers only free rooms with enough seats and all of that equipment. Neither is saved in the booking.
 
 Request:
 ```json
@@ -396,10 +398,11 @@ to SVG elements must be agreed with the backend separately.
 ### MeetingRoomWithStatus
 ```json
 {
-  "roomId": 10301, "roomEmail": "chili@orange.md", "roomAlias": "Orange {kITchen} - Chili",
-  "roomCapacity": "10", "roomEquipments": "Room, TV, Whiteboard", "isBusy": true
+  "roomId": 10301, "roomEmail": "chili@orange.md", "roomAlias": "Chili",
+  "roomCapacity": "8", "roomEquipments": "TV, Whiteboard", "isBusy": true
 }
 ```
+`roomAlias` is the name on the frontend map: `Chili`, `Ketchup`, `Boiling Room`, `Cabină 1`, `Cabină 2`.
 `roomCapacity` is a **string**: parse it with `parseInt()` before comparing.
 `roomEquipments` is a comma-separated string.
 
