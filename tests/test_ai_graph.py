@@ -23,8 +23,12 @@ class FakeAgent:
         return {"messages": [*state["messages"], AIMessage(self.reply)]}
 
 
+async def no_cancel(actions):
+    raise AssertionError("nothing should be cancelled here")
+
+
 async def run(agent, text, hint=None):
-    graph = build_dialog_graph(lambda language: agent)
+    graph = build_dialog_graph(lambda language: agent, no_cancel)
     return await graph.ainvoke(
         {"messages": [HumanMessage(text)], "text": text, "language_hint": hint}
     )

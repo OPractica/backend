@@ -83,9 +83,7 @@ async def test_voice_ai_booking_requires_confirmation(
     monkeypatch.setattr(
         ai_chat,
         "build_agent",
-        lambda user_id, language=None: build_agent(
-            user_id, llm=model, language=language
-        ),
+        lambda user_id, **options: build_agent(user_id, llm=model, **options),
     )
 
     seat = Seat(

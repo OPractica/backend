@@ -74,6 +74,7 @@ SYSTEM_PROMPT = """\
    Не повторяй тот же вызов с теми же данными.
 8. Отменяй бронь только по явной просьбе. Если просят «переделать» или «изменить» бронь, сначала найди новое место
    и предложи его. Старую бронь отменяй и новую создавай только после согласия пользователя.
+{cancel_rule}
 
 # Переговорные
 Переговорные (Sala 1, Sala 2, Cabină 1 и т.д.) бронируются отдельными инструментами, не путай их с рабочими местами.
@@ -135,12 +136,23 @@ def build_language_rule(language: Language | None) -> str:
     )
 
 
+CANCEL_RULE = (
+    "9. Отмену не переспрашивай сам: когда пользователь просит отменить бронь или согласился "
+    "на замену, сразу вызови инструмент отмены. Он ничего не отменяет сразу: система сама "
+    "спросит у пользователя «да» или «нет» и выполнит отмену. После ответа «confirmation required» "
+    "не пиши, что бронь отменена, и не бронируй замену в этом же ответе."
+)
+
+
 def build_system_prompt(
-    now: datetime | None = None, language: Language | None = None
+    now: datetime | None = None,
+    language: Language | None = None,
+    confirm_cancel: bool = False,
 ) -> str:
     now = now or datetime.now(OFFICE_TZ)
     return SYSTEM_PROMPT.format(
         language_rule=build_language_rule(language),
+        cancel_rule=CANCEL_RULE if confirm_cancel else "",
         now=now.strftime("%Y-%m-%d %H:%M, %A"),
         tz=settings.office_timezone,
         calendar=build_calendar(now),
@@ -155,6 +167,7 @@ def build_agent(
     llm: BaseChatModel | None = None,
     now: datetime | None = None,
     language: Language | None = None,
+    confirm_cancel: bool = False,
 ):
     """Собрать агента для пользователя.
 
@@ -162,11 +175,12 @@ def build_agent(
     агента нужно собирать заново на каждый запрос или сессию.
     llm и now можно передать в тестах и в оценке: модель по умолчанию из настроек,
     время по умолчанию текущее. language задаёт язык ответа жёстко (его определяет граф).
+    confirm_cancel включает отмену только после подтверждения пользователя (так работает чат).
     """
     return create_agent(
         llm or get_llm(),
-        tools=make_tools(user_id),
-        system_prompt=build_system_prompt(now, language),
+        tools=make_tools(user_id, confirm_cancel),
+        system_prompt=build_system_prompt(now, language, confirm_cancel),
         middleware=build_resilience(llm),
     )
 

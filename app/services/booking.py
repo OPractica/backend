@@ -205,9 +205,10 @@ async def create_booking(
     return booking
 
 
-async def cancel_booking(
+async def get_cancellable_booking(
     session: AsyncSession, user_id: int, booking_id: int
 ) -> Booking:
+    """Активная бронь этого пользователя, которую можно отменить. Ничего не меняет."""
     booking = await session.get(Booking, booking_id)
     # Для чужой и для несуществующей брони ответ одинаковый: не раскрываем чужие данные.
     if booking is None or booking.user_id != user_id:
@@ -216,7 +217,13 @@ async def cancel_booking(
         raise BookingError(
             f"Бронь {booking_id} уже отменена.", "booking_already_cancelled"
         )
+    return booking
 
+
+async def cancel_booking(
+    session: AsyncSession, user_id: int, booking_id: int
+) -> Booking:
+    booking = await get_cancellable_booking(session, user_id, booking_id)
     booking.status = "cancelled"
     await session.flush()
     return booking
