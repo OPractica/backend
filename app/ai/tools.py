@@ -1,23 +1,42 @@
 """Инструменты (tools) агента."""
 
+import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
 from langchain_core.tools import BaseTool, tool
 
+from app.ai.pending import PendingCancel
 from app.core.config import settings
 from app.core.db import SessionLocal
-from app.models.database import Seat
+from app.models.database import MeetingRoom, Seat, User
 from app.services.booking import (
     BookingError,
     cancel_booking,
     create_booking,
     find_free_seats,
+    get_cancellable_booking,
     get_seat_by_label,
     list_user_bookings,
 )
+from app.services.email import get_email_sender
+from app.services.email_templates import (
+    booking_cancelled_html,
+    booking_confirmed_html,
+)
+from app.services.meeting_room import (
+    cancel_room_booking,
+    create_room_booking,
+    get_cancellable_room_booking,
+    get_room_by_alias,
+    get_rooms_with_status,
+    list_user_room_bookings,
+)
 
 OFFICE_TZ = ZoneInfo(settings.office_timezone)
+# Переговорные лежат в офисе 1 (7 этаж, Zity Mall): тот же id использует фронтенд.
+MEETING_ROOMS_OFFICE_ID = 1
+logger = logging.getLogger(__name__)
 
 
 def _parse_local(value: str) -> datetime:
@@ -46,6 +65,11 @@ def _fmt(moment: datetime) -> str:
     return moment.astimezone(OFFICE_TZ).strftime("%Y-%m-%d %H:%M")
 
 
+def _equipment(value: str) -> set[str]:
+    """'TV,  whiteboard ' -> {'tv', 'whiteboard'}: регистр и лишние пробелы не важны."""
+    return {" ".join(item.split()).casefold() for item in value.split(",")} - {""}
+
+
 def _error_hint(code: str) -> str | None:
     """Короткое английское пояснение к коду ошибки сервиса (язык ответа выберет модель)."""
     hints = {
@@ -55,6 +79,9 @@ def _error_hint(code: str) -> str | None:
         "seat_label_ambiguous": "the seat name matches several seats",
         "seat_already_booked": "the seat is already booked for this time",
         "user_booking_overlap": "the user already has a booking for this time",
+        "room_not_found": "no such meeting room, or it is not available",
+        "room_alias_ambiguous": "the meeting room name matches several rooms",
+        "room_already_booked": "the meeting room is already booked for this time",
         "booking_not_found": "there is no such booking",
         "booking_already_cancelled": "the booking is already cancelled",
         "booking_in_past": "bookings in the past are not allowed",
@@ -75,10 +102,63 @@ def _error_text(error: BookingError) -> str:
     return f"error {error.code}: {_error_hint(error.code) or error}"
 
 
-def make_tools(user_id: int) -> list[BaseTool]:
+async def _send_ai_mail(session, user_id: int, subject: str, html: str) -> None:
+    """Отправляет письмо с аккуратной пометкой AI на обоих языках."""
+    try:
+        user = await session.get(User, user_id)
+        if user and user.email:
+            html = (
+                html.replace(
+                    "Your desk has been successfully booked.",
+                    "Your desk has been booked with AI assistant.",
+                )
+                .replace(
+                    "Locul dvs. a fost rezervat cu succes.",
+                    "Locul dvs. a fost rezervat prin asistentul AI.",
+                )
+                .replace(
+                    "Your booking has been cancelled.",
+                    "Your booking has been cancelled with AI assistant.",
+                )
+                .replace(
+                    "Rezervarea dvs. a fost anulată.",
+                    "Rezervarea dvs. a fost anulată prin asistentul AI.",
+                )
+            )
+
+            sender = get_email_sender()
+            await sender.send(to=user.email, subject=subject, html=html)
+    except Exception:
+        logger.exception("Failed to send AI booking email")
+
+
+async def cancel_confirmed(user_id: int, actions: list[PendingCancel]) -> list[bool]:
+    """Отменить брони, которые пользователь подтвердил. Вернуть успех по каждой."""
+    results = []
+    for action in actions:
+        cancel = cancel_booking if action["kind"] == "seat" else cancel_room_booking
+        try:
+            async with SessionLocal() as session:
+                booking = await cancel(session, user_id, action["id"])
+                await session.commit()
+                # Письма отправляются только о местах, как и в инструменте отмены
+                if action["kind"] == "seat":
+                    seat = await session.get(Seat, booking.seat_id)
+                    seat_label = seat.label if seat else f"#{booking.seat_id}"
+                    subject, html = booking_cancelled_html(booking, seat_label)
+                    await _send_ai_mail(session, user_id, subject, html)
+            results.append(True)
+        except BookingError:
+            results.append(False)
+    return results
+
+
+def make_tools(user_id: int, confirm_cancel: bool = False) -> list[BaseTool]:
     """Собрать инструменты для конкретного пользователя.
 
     user_id зашит в инструменты: модель не может бронировать или отменять за других.
+    confirm_cancel: инструменты отмены только проверяют бронь и просят подтверждение,
+    а саму отмену выполняет код после ответа пользователя.
     """
 
     @tool
@@ -138,6 +218,10 @@ def make_tools(user_id: int) -> list[BaseTool]:
                     session, user_id, found.id, starts_at, ends_at, source="ai"
                 )
                 await session.commit()
+
+                subject, html = booking_confirmed_html(booking, found.label)
+                await _send_ai_mail(session, user_id, subject, html)
+
                 return (
                     f"booking created: booking id {booking.id}, seat {found.label}, "
                     f"from {_fmt(booking.starts_at)} to {_fmt(booking.ends_at)}"
@@ -153,10 +237,142 @@ def make_tools(user_id: int) -> list[BaseTool]:
         """
         try:
             async with SessionLocal() as session:
+                if confirm_cancel:
+                    booking = await get_cancellable_booking(
+                        session, user_id, booking_id
+                    )
+                    seat = await session.get(Seat, booking.seat_id)
+                    return (
+                        f"confirmation required: booking id {booking.id}, "
+                        f"seat {seat.label if seat else '?'}, "
+                        f"from {_fmt(booking.starts_at)} to {_fmt(booking.ends_at)}"
+                    )
                 booking = await cancel_booking(session, user_id, booking_id)
                 await session.commit()
+
+                seat = await session.get(Seat, booking.seat_id)
+                seat_label = seat.label if seat else f"#{booking.seat_id}"
+                subject, html = booking_cancelled_html(booking, seat_label)
+                await _send_ai_mail(session, user_id, subject, html)
+
                 return f"booking {booking.id} cancelled"
+
         except BookingError as error:
             return _error_text(error)
 
-    return [search_free_seats, book_seat, cancel_my_booking, list_my_bookings]
+    @tool
+    async def search_free_meeting_rooms(
+        start: str, end: str, min_capacity: int = 0, equipment: str = ""
+    ) -> str:
+        """Найти свободные переговорные на интервал времени.
+
+        start: начало, местное время, формат ГГГГ-ММ-ДДTЧЧ:ММ (например 2026-10-16T09:00).
+        end: конец в том же формате.
+        min_capacity: число людей на встрече. Передавай всегда, когда пользователь назвал,
+        сколько будет человек («на шестерых», «pentru 6 persoane», «for 6 people»).
+        equipment: нужное оборудование через запятую, английскими названиями из данных:
+        TV, Whiteboard. Передавай, когда пользователь назвал оборудование на любом языке:
+        «телевизор», «televizor», «TV» -> TV; «доска», «tablă», «whiteboard» -> Whiteboard.
+        Подходит только переговорная, где есть всё перечисленное.
+        Возвращает только подходящие свободные переговорные: название (например Ketchup),
+        вместимость и оборудование.
+        """
+        try:
+            starts_at, ends_at = _parse_interval(start, end)
+            async with SessionLocal() as session:
+                rooms = await get_rooms_with_status(
+                    session, MEETING_ROOMS_OFFICE_ID, starts_at, ends_at
+                )
+        except BookingError as error:
+            return _error_text(error)
+        free = [room for room, busy in rooms if not busy]
+        if not free:
+            return "no free meeting rooms for this time"
+        wanted = _equipment(equipment)
+        fitting = [
+            room
+            for room in free
+            if room.capacity >= min_capacity and wanted <= _equipment(room.equipments)
+        ]
+        if not fitting:
+            return "no free meeting room has enough seats and all the equipment"
+        return "\n".join(
+            f"room={room.alias} capacity={room.capacity} equipment={room.equipments or 'none'}"
+            for room in fitting
+        )
+
+    @tool
+    async def book_meeting_room(room: str, start: str, end: str) -> str:
+        """Забронировать переговорную для текущего пользователя.
+
+        room: название переговорной: Chili, Ketchup, Boiling Room, Cabină 1 или Cabină 2.
+        Бери его из результата search_free_meeting_rooms или из слов пользователя, ничего не придумывай.
+        start: начало, формат ГГГГ-ММ-ДДTЧЧ:ММ, местное время.
+        end: конец в том же формате.
+        """
+        try:
+            starts_at, ends_at = _parse_interval(start, end)
+            async with SessionLocal() as session:
+                found = await get_room_by_alias(session, room, MEETING_ROOMS_OFFICE_ID)
+                booking = await create_room_booking(
+                    session, user_id, found.id, starts_at, ends_at
+                )
+                await session.commit()
+                return (
+                    f"meeting room booking created: booking id {booking.id}, room {found.alias}, "
+                    f"from {_fmt(booking.starts_at)} to {_fmt(booking.ends_at)}"
+                )
+        except BookingError as error:
+            return _error_text(error)
+
+    @tool
+    async def cancel_meeting_room_booking(booking_id: int) -> str:
+        """Отменить бронь переговорной текущего пользователя по номеру брони переговорной.
+
+        booking_id: номер из list_my_meeting_room_bookings или из подтверждения брони переговорной.
+        Для обычных мест этот инструмент не подходит: там cancel_my_booking.
+        """
+        try:
+            async with SessionLocal() as session:
+                if confirm_cancel:
+                    booking = await get_cancellable_room_booking(
+                        session, user_id, booking_id
+                    )
+                    room = await session.get(MeetingRoom, booking.room_id)
+                    return (
+                        f"confirmation required: meeting room booking id {booking.id}, "
+                        f"room {room.alias if room else '?'}, "
+                        f"from {_fmt(booking.starts_at)} to {_fmt(booking.ends_at)}"
+                    )
+                booking = await cancel_room_booking(session, user_id, booking_id)
+                await session.commit()
+                return f"meeting room booking {booking.id} cancelled"
+        except BookingError as error:
+            return _error_text(error)
+
+    @tool
+    async def list_my_meeting_room_bookings() -> str:
+        """Показать будущие подтверждённые брони переговорных текущего пользователя."""
+        async with SessionLocal() as session:
+            bookings = await list_user_room_bookings(session, user_id)
+            aliases = {}
+            for booking in bookings:
+                room = await session.get(MeetingRoom, booking.room_id)
+                aliases[booking.id] = room.alias if room else "?"
+        if not bookings:
+            return "the user has no active meeting room bookings"
+        return "\n".join(
+            f"meeting room booking {b.id}: room {aliases[b.id]}, {_fmt(b.starts_at)} - {_fmt(b.ends_at)}"
+            for b in bookings
+        )
+
+    return [
+        search_free_seats,
+        book_seat,
+        cancel_my_booking,
+        list_my_bookings,
+        search_free_meeting_rooms,
+        book_meeting_room,
+        cancel_meeting_room_booking,
+        list_my_meeting_room_bookings,
+    ]

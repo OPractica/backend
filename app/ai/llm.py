@@ -9,6 +9,7 @@ from app.core.config import settings
 
 OLLAMA_NUM_CTX = 8192
 OLLAMA_TIMEOUT_SECONDS = 180
+GEMINI_TIMEOUT_SECONDS = 30  # зависший запрос не должен держать пользователя минутами
 
 # Ошибки «модель недоступна или сбоит». Не зависят от того, какой провайдер включён:
 # облачная модель сообщает о них через ModelError, а локальный сервер Ollama
@@ -44,9 +45,26 @@ def get_llm() -> BaseChatModel:
         raise LLMNotConfiguredError(
             "GOOGLE_API_KEY is not set. Add it to .env (see .env.example)."
         )
+    return _gemini(settings.llm_model)
+
+
+def _gemini(model: str) -> ChatGoogleGenerativeAI:
     return ChatGoogleGenerativeAI(
-        model=settings.llm_model,
+        model=model,
         api_key=settings.google_api_key,
         thinking_level="low",
-        max_retries=2,
+        max_retries=1,
+        timeout=GEMINI_TIMEOUT_SECONDS,
     )
+
+
+def get_fallback_llms() -> list[BaseChatModel]:
+    """Запасные модели на случай, когда основная перегружена (ошибка 503) или не отвечает.
+
+    Только для Gemini: локальная модель запасных не имеет. Названия берутся из
+    LLM_FALLBACK_MODELS, основная модель в список не попадает.
+    """
+    if settings.llm_provider != "gemini" or not settings.google_api_key:
+        return []
+    names = [name.strip() for name in settings.llm_fallback_models.split(",")]
+    return [_gemini(name) for name in names if name and name != settings.llm_model]

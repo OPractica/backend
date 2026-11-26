@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai import chat as ai_chat
+from app.ai import memory as ai_memory
 from app.ai import tools as ai_tools
 from app.ai.agent import build_agent
 from app.models.database import Booking, Seat, User
@@ -36,16 +37,19 @@ async def tools_use_test_session(monkeypatch, session: AsyncSession):
         yield session
 
     monkeypatch.setattr(ai_tools, "SessionLocal", test_session_local)
+    monkeypatch.setattr(ai_memory, "SessionLocal", test_session_local)
 
 
 @pytest.fixture(autouse=True)
 def clean_history():
-    ai_chat._history.clear()
+    ai_memory._fallback.clear()
 
 
 def use_fake_model(monkeypatch, model: ScriptedChatModel) -> None:
     monkeypatch.setattr(
-        ai_chat, "build_agent", lambda user_id: build_agent(user_id, llm=model)
+        ai_chat,
+        "build_agent",
+        lambda user_id, **options: build_agent(user_id, llm=model, **options),
     )
 
 
@@ -222,3 +226,103 @@ async def test_chat_returns_503_when_the_local_model_server_fails(
     response = await client.post(CHAT_URL, json={"text": "Привет"}, headers=headers)
 
     assert response.status_code == 503
+
+
+async def test_chat_passes_language_hint_to_the_graph(monkeypatch):
+    seen = {}
+
+    def fake_graph(agent_for, cancel):
+        class Graph:
+            async def ainvoke(self, state):
+                seen.update(state)
+                return {"messages": [AIMessage("ok")], "answer": "ok"}
+
+        return Graph()
+
+    use_fake_model(monkeypatch, ScriptedChatModel(responses=[AIMessage("ok")]))
+    monkeypatch.setattr(ai_chat, "build_dialog_graph", fake_graph)
+    answer, _ = await ai_chat.run_chat(1, "Привет", language="ro")
+    assert answer == "ok"
+    assert seen["language_hint"] == "ro"
+    assert seen["text"] == "Привет"
+
+
+async def test_chat_rejects_unknown_language(client: AsyncClient):
+    headers, _ = await register_and_login(client)
+    response = await client.post(
+        CHAT_URL, json={"text": "hi", "language": "de"}, headers=headers
+    )
+    assert response.status_code == 422
+
+
+async def test_booking_confirmation_comes_from_code_in_the_dialog_language(
+    client: AsyncClient, session: AsyncSession, monkeypatch
+):
+    seat = Seat(label="T-1", floor=7, zone="window", attributes={})
+    session.add(seat)
+    await session.flush()
+    model = ScriptedChatModel(
+        responses=[
+            tool_call("book_seat", {"seat": seat.label, "start": START, "end": END}),
+            AIMessage(
+                "Готово! Место забронировано на 2031 год."
+            ),  # wrong language and date
+        ]
+    )
+    use_fake_model(monkeypatch, model)
+    headers, _ = await register_and_login(client)
+
+    response = await client.post(
+        CHAT_URL, json={"text": "Rezervă T-1", "language": "ro"}, headers=headers
+    )
+
+    booking = await session.scalar(select(Booking).where(Booking.seat_id == seat.id))
+    assert response.json()["answer"] == (
+        f"Locul T-1 a fost rezervat pentru 2030-01-15, între 09:00 și 10:00. "
+        f"Numărul rezervării: {booking.id}."
+    )
+
+
+async def test_answer_without_an_action_stays_the_model_answer(
+    client: AsyncClient, monkeypatch
+):
+    use_fake_model(
+        monkeypatch, ScriptedChatModel(responses=[AIMessage("Какое время вам удобно?")])
+    )
+    headers, _ = await register_and_login(client)
+
+    response = await client.post(CHAT_URL, json={"text": "Хочу место"}, headers=headers)
+
+    assert response.json()["answer"] == "Какое время вам удобно?"
+
+
+async def test_prompt_names_the_dialog_language(client: AsyncClient, monkeypatch):
+    model = ScriptedChatModel(responses=[AIMessage("Bună!")])
+    use_fake_model(monkeypatch, model)
+    headers, _ = await register_and_login(client)
+
+    await client.post(
+        CHAT_URL, json={"text": "Bună ziua, vreau un loc"}, headers=headers
+    )
+
+    system = model.seen[0][0].text
+    assert "ЯЗЫК ОТВЕТА: румынский (ro)" in system
+
+
+async def test_short_reply_keeps_the_language_of_the_dialog(
+    client: AsyncClient, monkeypatch
+):
+    model = ScriptedChatModel(responses=[AIMessage("Ce oră?"), AIMessage("Bine.")])
+    use_fake_model(monkeypatch, model)
+    headers, _ = await register_and_login(client)
+
+    first = await client.post(
+        CHAT_URL, json={"text": "Bună ziua, vreau să rezerv un loc"}, headers=headers
+    )
+    await client.post(
+        CHAT_URL,
+        json={"text": "ok", "session_id": first.json()["session_id"]},
+        headers=headers,
+    )
+
+    assert "ЯЗЫК ОТВЕТА: румынский (ro)" in model.seen[1][0].text

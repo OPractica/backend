@@ -8,6 +8,7 @@ from alembic import context
 
 # import application settings to load DATABASE_URL from .env
 from app.core.config import settings
+from app.models.chat import ChatSession
 from app.models.voice import VoiceRecord
 
 # this is the Alembic Config object, which provides
@@ -26,6 +27,8 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 # from myapp import mymodel
 # target_metadata = mymodel.Base.metadata
+# Importing the models registers their tables in the shared metadata
+MODELS = (VoiceRecord, ChatSession)
 target_metadata = VoiceRecord.metadata
 
 # other values from the config, defined by the needs of env.py,
