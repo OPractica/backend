@@ -1,5 +1,6 @@
 """Инструменты (tools) агента."""
 
+import logging
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
@@ -7,7 +8,7 @@ from langchain_core.tools import BaseTool, tool
 
 from app.core.config import settings
 from app.core.db import SessionLocal
-from app.models.database import MeetingRoom, Seat
+from app.models.database import MeetingRoom, Seat, User
 from app.services.booking import (
     BookingError,
     cancel_booking,
@@ -15,6 +16,11 @@ from app.services.booking import (
     find_free_seats,
     get_seat_by_label,
     list_user_bookings,
+)
+from app.services.email import get_email_sender
+from app.services.email_templates import (
+    booking_cancelled_html,
+    booking_confirmed_html,
 )
 from app.services.meeting_room import (
     cancel_room_booking,
@@ -27,6 +33,7 @@ from app.services.meeting_room import (
 OFFICE_TZ = ZoneInfo(settings.office_timezone)
 # Переговорные лежат в офисе 1 (7 этаж, Zity Mall): тот же id использует фронтенд.
 MEETING_ROOMS_OFFICE_ID = 1
+logger = logging.getLogger(__name__)
 
 
 def _parse_local(value: str) -> datetime:
@@ -85,6 +92,36 @@ def _error_hint(code: str) -> str | None:
 def _error_text(error: BookingError) -> str:
     """Ответ инструмента об ошибке: код и пояснение на английском."""
     return f"error {error.code}: {_error_hint(error.code) or error}"
+
+
+async def _send_ai_mail(session, user_id: int, subject: str, html: str) -> None:
+    """Отправляет письмо с аккуратной пометкой AI на обоих языках."""
+    try:
+        user = await session.get(User, user_id)
+        if user and user.email:
+            html = (
+                html.replace(
+                    "Your desk has been successfully booked.",
+                    "Your desk has been booked with AI assistant.",
+                )
+                .replace(
+                    "Locul dvs. a fost rezervat cu succes.",
+                    "Locul dvs. a fost rezervat prin asistentul AI.",
+                )
+                .replace(
+                    "Your booking has been cancelled.",
+                    "Your booking has been cancelled with AI assistant.",
+                )
+                .replace(
+                    "Rezervarea dvs. a fost anulată.",
+                    "Rezervarea dvs. a fost anulată prin asistentul AI.",
+                )
+            )
+
+            sender = get_email_sender()
+            await sender.send(to=user.email, subject=subject, html=html)
+    except Exception:
+        logger.exception("Failed to send AI booking email")
 
 
 def make_tools(user_id: int) -> list[BaseTool]:
@@ -150,6 +187,10 @@ def make_tools(user_id: int) -> list[BaseTool]:
                     session, user_id, found.id, starts_at, ends_at, source="ai"
                 )
                 await session.commit()
+
+                subject, html = booking_confirmed_html(booking, found.label)
+                await _send_ai_mail(session, user_id, subject, html)
+
                 return (
                     f"booking created: booking id {booking.id}, seat {found.label}, "
                     f"from {_fmt(booking.starts_at)} to {_fmt(booking.ends_at)}"
@@ -167,7 +208,14 @@ def make_tools(user_id: int) -> list[BaseTool]:
             async with SessionLocal() as session:
                 booking = await cancel_booking(session, user_id, booking_id)
                 await session.commit()
+
+                seat = await session.get(Seat, booking.seat_id)
+                seat_label = seat.label if seat else f"#{booking.seat_id}"
+                subject, html = booking_cancelled_html(booking, seat_label)
+                await _send_ai_mail(session, user_id, subject, html)
+
                 return f"booking {booking.id} cancelled"
+
         except BookingError as error:
             return _error_text(error)
 
