@@ -11,6 +11,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from sqlalchemy import select
 
 from app.ai import chat as ai_chat
+from app.ai import memory as ai_memory
 from app.ai import tools as ai_tools
 from app.ai.agent import build_agent
 from app.api.v1 import voice as voice_api
@@ -38,7 +39,7 @@ async def test_voice_ai_booking_requires_confirmation(
     """One JWT, two endpoints, one AI session, booking only after consent."""
     monkeypatch.setattr(upload, "STORAGE_DIR", tmp_path)
     monkeypatch.setattr(storage, "STORAGE_DIR", tmp_path)
-    monkeypatch.setattr(ai_chat, "_history", {})
+    monkeypatch.setattr(ai_memory, "_fallback", ai_memory._fallback.__class__())
 
     def fake_voice_process(audio_path, language):
         assert audio_path.is_file()
@@ -61,6 +62,7 @@ async def test_voice_ai_booking_requires_confirmation(
         yield session
 
     monkeypatch.setattr(ai_tools, "SessionLocal", test_session_local)
+    monkeypatch.setattr(ai_memory, "SessionLocal", test_session_local)
 
     model = ScriptedChatModel(
         responses=[

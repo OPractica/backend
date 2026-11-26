@@ -2,17 +2,12 @@
 
 from uuid import uuid4
 
-from langchain_core.messages import BaseMessage, HumanMessage
+from langchain_core.messages import HumanMessage
 
 from app.ai.agent import build_agent
 from app.ai.graph import build_dialog_graph
 from app.ai.language import Language
-
-# История диалогов в памяти процесса: (user_id, session_id) -> сообщения.
-# Временное решение. В ключе есть user_id, поэтому
-# пользователь не может подставить чужой session_id и увидеть чужой диалог.
-# Сообщения хранятся целыми объектами: у ответов Gemini внутри есть служебные подписи.
-_history: dict[tuple[int, str], list[BaseMessage]] = {}
+from app.ai.memory import load_history, save_history
 
 
 async def run_chat(
@@ -21,13 +16,17 @@ async def run_chat(
     session_id: str | None = None,
     language: Language | None = None,
 ) -> tuple[str, str]:
-    """Передать сообщение агенту от имени пользователя. Вернуть (ответ, session_id)."""
+    """Передать сообщение агенту от имени пользователя. Вернуть (ответ, session_id).
+
+    История хранится в базе (app/ai/memory.py) и привязана к паре (user_id, session_id):
+    пользователь не может подставить чужой session_id и увидеть чужой диалог.
+    Сообщения хранятся целыми объектами: у ответов Gemini внутри есть служебные подписи.
+    """
     session_id = session_id or uuid4().hex
-    key = (user_id, session_id)
-    messages = [*_history.get(key, []), HumanMessage(content=text)]
+    messages = [*await load_history(user_id, session_id), HumanMessage(content=text)]
     graph = build_dialog_graph(lambda language: build_agent(user_id, language=language))
     result = await graph.ainvoke(
         {"messages": messages, "text": text, "language_hint": language}
     )
-    _history[key] = result["messages"]
+    await save_history(user_id, session_id, result["messages"])
     return result["answer"], session_id

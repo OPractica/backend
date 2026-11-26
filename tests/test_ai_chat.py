@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.ai import chat as ai_chat
+from app.ai import memory as ai_memory
 from app.ai import tools as ai_tools
 from app.ai.agent import build_agent
 from app.models.database import Booking, Seat, User
@@ -36,11 +37,12 @@ async def tools_use_test_session(monkeypatch, session: AsyncSession):
         yield session
 
     monkeypatch.setattr(ai_tools, "SessionLocal", test_session_local)
+    monkeypatch.setattr(ai_memory, "SessionLocal", test_session_local)
 
 
 @pytest.fixture(autouse=True)
 def clean_history():
-    ai_chat._history.clear()
+    ai_memory._fallback.clear()
 
 
 def use_fake_model(monkeypatch, model: ScriptedChatModel) -> None:
