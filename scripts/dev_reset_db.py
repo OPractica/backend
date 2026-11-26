@@ -10,7 +10,7 @@ import asyncio
 from sqlalchemy import text
 
 from app.core.db import SessionLocal, engine
-from app.models.database import Seat, User, base
+from app.models.database import MeetingRoom, Seat, User, base
 
 SEATS = [
     {
@@ -87,6 +87,40 @@ SEATS = [
     },
 ]
 
+# Переговорные и кабины офиса 1 (7 этаж): названия те же, что на карте фронтенда
+MEETING_ROOMS = [
+    {
+        "alias": "Chili",
+        "email": "chili@orange.md",
+        "capacity": 8,
+        "equipments": "TV, Whiteboard",
+    },
+    {
+        "alias": "Ketchup",
+        "email": "ketchup@orange.md",
+        "capacity": 6,
+        "equipments": "TV",
+    },
+    {
+        "alias": "Boiling Room",
+        "email": "boilingroom@orange.md",
+        "capacity": 10,
+        "equipments": "TV, Whiteboard",
+    },
+    {
+        "alias": "Cabină 1",
+        "email": "cabina1@orange.md",
+        "capacity": 1,
+        "equipments": "",
+    },
+    {
+        "alias": "Cabină 2",
+        "email": "cabina2@orange.md",
+        "capacity": 1,
+        "equipments": "",
+    },
+]
+
 
 async def main() -> None:
     # Защита: стираем данные только в локальной базе.
@@ -110,11 +144,13 @@ async def main() -> None:
             )
         )
         session.add_all([Seat(floor=7, **seat) for seat in SEATS])
+        session.add_all([MeetingRoom(office_id=1, **room) for room in MEETING_ROOMS])
         await session.commit()
 
     await engine.dispose()
     print(
-        f"Готово: таблицы пересозданы, добавлено мест: {len(SEATS)}, пользователей: 1"
+        f"Готово: таблицы пересозданы, добавлено мест: {len(SEATS)}, "
+        f"переговорных: {len(MEETING_ROOMS)}, пользователей: 1"
     )
 
 
